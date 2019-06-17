@@ -15,11 +15,13 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/'
-MODEL_NAME = 'model_epochs_10_pure_resnet34_CCE'
-EPOCHS_NUM = 5
+MODEL_NAME = 'model_epochs_10_pure_resnet34_multimodal_DICE_1_pixel'
+EPOCHS_NUM = 10
 
-x_dir = os.path.join(DATA_DIR, 'train_t1ce_img_full')
-x_dir_seg_csf = os.path.join(DATA_DIR, 'train_t1ce_img_full')
+x_dir = dict()
+x_dir['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full')
+x_dir['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full')
+x_dir['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
 y_dir = os.path.join(DATA_DIR, 'train_label_full')
 
 
@@ -43,8 +45,10 @@ class Dataset(BaseDataset):
             augmentation=None,
             preprocessing=None,
     ):
-        self.ids = os.listdir(images_dir)
-        self.images_fps = [os.path.join(images_dir, image_id) for image_id in self.ids]
+        self.ids = os.listdir(images_dir['t2'])
+        self.images_fps_t1ce = [os.path.join(images_dir['t1ce'], image_id) for image_id in self.ids]
+        self.images_fps_t1 = [os.path.join(images_dir['t1'], image_id) for image_id in self.ids]
+        self.images_fps_t2 = [os.path.join(images_dir['t2'], image_id) for image_id in self.ids]
         self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids]
 
         # convert str names to class values on masks
@@ -55,14 +59,16 @@ class Dataset(BaseDataset):
 
     def __getitem__(self, i):
 
-        # read data
-        image = cv2.imread(self.images_fps[i], cv2.IMREAD_GRAYSCALE)
-        # image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        # read data for all three modalities, i.e. t1ce, t1 and t2
+        image_t1ce = cv2.imread(self.images_fps_t1ce[i], cv2.IMREAD_GRAYSCALE)
+        image_t1 = cv2.imread(self.images_fps_t1[i], cv2.IMREAD_GRAYSCALE)
+        image_t2 = cv2.imread(self.images_fps_t2[i], cv2.IMREAD_GRAYSCALE)
+        image = np.stack([image_t1ce, image_t1, image_t2], axis=-1).astype('float32')
         mask = cv2.imread(self.masks_fps[i], cv2.IMREAD_GRAYSCALE)
 
         # extract certain classes from mask
         masks = [(mask == v) for v in self.class_values]
-        mask = np.stack(masks, axis=-1).astype('float')
+        mask = np.stack(masks, axis=-1).astype('float32')
 
         # apply augmentations
         if self.augmentation:
@@ -70,11 +76,10 @@ class Dataset(BaseDataset):
             image, mask = sample['image'], sample['mask']
 
         # modification: adding a singleton dimension so that the image can be processed
-        image = image[None, :]
         mask = np.swapaxes(mask, 1, 2)
         mask = np.swapaxes(mask, 0, 1)
-        image = image.astype('float32')
-        mask = mask.astype('float32')
+        image = np.swapaxes(image, 0, 2)
+        image = np.swapaxes(image, 1, 2)
 
         return image, mask
 
@@ -99,6 +104,8 @@ DEVICE = 'cuda'
 CLASSES = ['t_2', 't_1', 't_3']
 ACTIVATION = 'sigmoid'
 
+model = torch.load('./' + MODEL_NAME)
+'''
 # create segmentation model with pretrained encoder
 model = smp.Unet(
     encoder_name=ENCODER,
@@ -106,7 +113,7 @@ model = smp.Unet(
     classes=len(CLASSES),
     activation=ACTIVATION,
 )
-
+'''
 
 preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
@@ -120,14 +127,14 @@ full_dataset = Dataset(
 train_size = int(0.9 * len(full_dataset))
 valid_size = len(full_dataset) - train_size
 
-loss = smp.utils.losses.BCEDiceLoss(eps=1.)
+loss = smp.utils.losses.DiceLoss(eps=1.)
 metrics = [
     smp.utils.metrics.IoUMetric(eps=1.),
     smp.utils.metrics.FscoreMetric(eps=1.),
 ]
 
 optimizer = torch.optim.Adam([
-    {'params': model.decoder.parameters(), 'lr': 1e-4},
+    {'params': model.decoder.parameters(), 'lr': 1e-5},
     {'params': model.encoder.parameters(), 'lr': 1e-6},
 ])
 
@@ -175,13 +182,27 @@ for i in range(0, EPOCHS_NUM):
     if i == 25:
         optimizer.param_groups[0]['lr'] = 1e-5
         print('Decrease decoder learning rate to 1e-5!')
+'''
+# load best saved checkpoint
+best_model = torch.load('./' + MODEL_NAME)
 
+# evaluate model on test set
+test_epoch = smp.utils.train.ValidEpoch(
+    model=best_model,
+    loss=loss,
+    metrics=metrics,
+    device=DEVICE,
+)
+train_dataset, valid_dataset = torch.utils.data.random_split(full_dataset,
+                                                                 [train_size, valid_size])
+valid_loader = DataLoader(valid_dataset, batch_size=3, shuffle=False, num_workers=2)
+logs = test_epoch.run(valid_loader)
 
 best_model = torch.load('./' + MODEL_NAME)
 model_result_dir = os.path.join(RESULT_DIR, MODEL_NAME)
 
 # save some prediction mask samples
-for i in range(5):
+for i in range(10):
     n = np.random.choice(len(full_dataset))
     image, gt_mask = full_dataset[n]
 
@@ -193,6 +214,9 @@ for i in range(5):
     gt_img = visualize(gt_mask)
     pr_img = visualize(pr_mask)
     image = np.squeeze(image)
-    imsave(model_result_dir + '/real_image_{}.png'.format(i), image)
+    imsave(model_result_dir + '/real_image_t1ce_{}.png'.format(i), image[0, :, :])
+    imsave(model_result_dir + '/real_image_t1_{}.png'.format(i), image[1, :, :])
+    imsave(model_result_dir + '/real_image_t2_{}.png'.format(i), image[2, :, :])
     imsave(model_result_dir + '/real_mask_{}.png'.format(i), gt_img)
     imsave(model_result_dir + '/predicted_mask_{}.png'.format(i), pr_img)
+'''

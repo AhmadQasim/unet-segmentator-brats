@@ -4,21 +4,32 @@ import numpy as np
 import sys
 import cv2
 from torch.utils.data import DataLoader
-from torch.utils.data import Dataset as BaseDataset
 import albumentations as albu
 from scipy.misc import imsave
+import pickle
+import matplotlib.pyplot as plt
+from brats_dataset import Dataset
 
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/'
-MODEL_NAME = 'model_epochs_30_multi_modal_pure_resnet34_dice_1_pixel_syn'
-EPOCHS_NUM = 15
+MODEL_NAME = 'model_epochs30_precent50_vis'
+LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + MODEL_NAME
+# 30+20
+EPOCHS_NUM = 50
+PURE_RATIO = 1.0
 SYNTHETIC_RATIO = 0.5
-TEST_RATIO = 0.1
+TEST_RATIO = 0.5
+ENCODER = 'resnet34'
+ENCODER_WEIGHTS = 'imagenet'
+DEVICE = 'cuda'
+CLASSES = ['t_2', 't_1', 't_3']
+ACTIVATION = 'sigmoid'
+CONTINUE_TRAIN = True
 
 x_dir = dict()
 x_dir_syn = dict()
@@ -27,14 +38,17 @@ x_dir['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full')
 x_dir['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full')
 x_dir['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
 y_dir = os.path.join(DATA_DIR, 'train_label_full')
-x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_syn')
-x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_syn')
-x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_syn')
-y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_syn')
-x_dir_test['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_syn')
-x_dir_test['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_syn')
-x_dir_test['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_syn')
-y_dir_test = os.path.join(DATA_DIR, 'train_label_full_syn')
+x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_elastic_full_syn')
+x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_elastic_full_syn')
+x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_elastic_full_syn')
+y_dir_syn = os.path.join(DATA_DIR, 'train_label_elastic_full')
+x_dir_test['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full')
+x_dir_test['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full')
+x_dir_test['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
+y_dir_test = os.path.join(DATA_DIR, 'train_label_full')
+
+if not os.path.exists(LOG_DIR):
+    os.mkdir(LOG_DIR)
 
 
 # this function fuses the predicted mask classes into one image
@@ -46,62 +60,6 @@ def visualize(image):
     return image_grayscale * 255.0
 
 
-class Dataset(BaseDataset):
-    CLASSES = ['bg', 't_2', 't_1', 'b', 't_3']
-
-    def __init__(
-            self,
-            images_dir,
-            masks_dir,
-            classes=None,
-            augmentation=None,
-            preprocessing=None,
-    ):
-        self.ids = os.listdir(images_dir['t2'])
-        self.images_fps_t1ce = [os.path.join(images_dir['t1ce'], image_id) for image_id in self.ids]
-        self.images_fps_t1 = [os.path.join(images_dir['t1'], image_id) for image_id in self.ids]
-        self.images_fps_t2 = [os.path.join(images_dir['t2'], image_id) for image_id in self.ids]
-        self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids]
-
-        # convert str names to class values on masks
-        self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
-
-        self.augmentation = augmentation
-        self.preprocessing = preprocessing
-
-    def __getitem__(self, i):
-
-        # read data for all three modalities, i.e. t1ce, t1 and t2
-        image_t1ce = cv2.imread(self.images_fps_t1ce[i], cv2.IMREAD_GRAYSCALE)
-        image_t1 = cv2.imread(self.images_fps_t1[i], cv2.IMREAD_GRAYSCALE)
-        image_t2 = cv2.imread(self.images_fps_t2[i], cv2.IMREAD_GRAYSCALE)
-        image = np.stack([image_t1ce, image_t1, image_t2], axis=-1).astype('float32')
-        mask = cv2.imread(self.masks_fps[i], cv2.IMREAD_GRAYSCALE)
-
-        if image.shape[0] == 256:
-            mask = cv2.copyMakeBorder(mask, 8, 8, 8, 8, cv2.BORDER_CONSTANT, (0, 0, 0))
-
-        # extract certain classes from mask
-        masks = [(mask == v) for v in self.class_values]
-        mask_stacked = np.stack(masks, axis=-1).astype('float32')
-
-        # apply augmentations
-        if self.augmentation:
-            sample = self.augmentation(image=image, mask=mask_stacked)
-            image, mask_stacked = sample['image'], sample['mask']
-
-        # modification: adding a singleton dimension so that the image can be processed
-        mask_stacked = np.swapaxes(mask_stacked, 1, 2)
-        mask_stacked = np.swapaxes(mask_stacked, 0, 1)
-        image = np.swapaxes(image, 0, 2)
-        image = np.swapaxes(image, 1, 2)
-
-        return image, mask_stacked
-
-    def __len__(self):
-        return len(self.ids)
-
-
 # Add paddings to make image shape divisible by 32
 def get_training_augmentation():
     test_transform = [
@@ -110,47 +68,74 @@ def get_training_augmentation():
     return albu.Compose(test_transform)
 
 
-# modification: changing from se_resnext50_32x4d to resnet34
-ENCODER = 'resnet34'
-ENCODER_WEIGHTS = 'imagenet'
-DEVICE = 'cuda'
+def create_model():
+    if CONTINUE_TRAIN:
+        model_loaded = torch.load('./' + MODEL_NAME)
+    else:
+        model_loaded = smp.Unet(
+            encoder_name=ENCODER,
+            encoder_weights=ENCODER_WEIGHTS,
+            classes=len(CLASSES),
+            activation=ACTIVATION,
+        )
+    return model_loaded
 
-# select only the tumor classes
-CLASSES = ['t_2', 't_1', 't_3']
-ACTIVATION = 'sigmoid'
 
-model = torch.load('./' + MODEL_NAME)
+def create_dataset():
+    full_dataset = Dataset(
+        x_dir,
+        y_dir,
+        classes=CLASSES,
+        augmentation=get_training_augmentation(),
+    )
 
-'''
-# create segmentation model with pretrained encoder
-model = smp.Unet(
-    encoder_name=ENCODER,
-    encoder_weights=ENCODER_WEIGHTS,
-    classes=len(CLASSES),
-    activation=ACTIVATION,
-)
-'''
-full_dataset = Dataset(
-    x_dir,
-    y_dir,
-    classes=CLASSES,
-    augmentation=get_training_augmentation(),
-)
+    full_dataset_syn = Dataset(
+        x_dir_syn,
+        y_dir_syn,
+        classes=CLASSES,
+        augmentation=get_training_augmentation(),
+    )
 
-full_dataset_syn = Dataset(
-    x_dir_syn,
-    y_dir_syn,
-    classes=CLASSES,
-    augmentation=get_training_augmentation(),
-)
+    pure_size = int(len(full_dataset) * PURE_RATIO)
 
-synthetic_size = len(full_dataset_syn) - int(len(full_dataset_syn)*(1-SYNTHETIC_RATIO))
+    synthetic_size = int(len(full_dataset_syn) * SYNTHETIC_RATIO)
 
-full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
-full_dataset = torch.utils.data.ConcatDataset((full_dataset, full_dataset_syn))
+    full_dataset = torch.utils.data.Subset(full_dataset, np.arange(pure_size))
+    full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
 
-train_size = int(0.9 * len(full_dataset))
-valid_size = len(full_dataset) - train_size
+    # 200%
+    # full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
+
+    full_dataset = torch.utils.data.ConcatDataset((full_dataset, full_dataset_syn))
+
+    return full_dataset
+
+
+def load_results():
+    with open(LOG_DIR + '/train_loss', 'rb') as f:
+        train_loss = pickle.load(f)
+    with open(LOG_DIR + '/valid_loss', 'rb') as f:
+        valid_loss = pickle.load(f)
+    with open(LOG_DIR + '/train_score', 'rb') as f:
+        train_score = pickle.load(f)
+    with open(LOG_DIR + '/valid_score', 'rb') as f:
+        valid_score = pickle.load(f)
+    return train_loss, valid_loss, train_score, valid_score
+
+
+def write_results(train_loss, valid_loss, train_score, valid_score):
+    with open(LOG_DIR + '/train_loss', 'wb') as f:
+        pickle.dump(train_loss, f)
+    with open(LOG_DIR + '/valid_loss', 'wb') as f:
+        pickle.dump(valid_loss, f)
+    with open(LOG_DIR + '/train_score', 'wb') as f:
+        pickle.dump(train_score, f)
+    with open(LOG_DIR + '/valid_score', 'wb') as f:
+        pickle.dump(valid_score, f)
+
+
+model = create_model()
+full_dataset = create_dataset()
 
 loss = smp.utils.losses.DiceLoss(eps=1.)
 metrics = [
@@ -163,7 +148,7 @@ optimizer = torch.optim.Adam([
     {'params': model.encoder.parameters(), 'lr': 1e-6},
 ])
 
-# create epoch runners 
+# create epoch runners
 # it is a simple loop of iterating over dataloader`s samples
 train_epoch = smp.utils.train.TrainEpoch(
     model,
@@ -182,79 +167,118 @@ valid_epoch = smp.utils.train.ValidEpoch(
     verbose=True,
 )
 
-'''
-max_score = 0
 
-for i in range(0, EPOCHS_NUM):
+def train_model():
+    max_score = 0
 
-    # during every epoch randomly sample from the dataset, for training and validation dataset members
-    train_dataset, valid_dataset = torch.utils.data.random_split(full_dataset,
-                                                                 [train_size, valid_size])
+    train_loss = np.zeros(EPOCHS_NUM)
+    valid_loss = np.zeros(EPOCHS_NUM)
+    train_score = np.zeros(EPOCHS_NUM)
+    valid_score = np.zeros(EPOCHS_NUM)
 
-    train_loader = DataLoader(train_dataset, batch_size=12, shuffle=True, num_workers=8)
-    valid_loader = DataLoader(valid_dataset, batch_size=3, shuffle=False, num_workers=2)
+    train_size = int(0.9 * len(full_dataset))
+    valid_size = len(full_dataset) - train_size
 
-    print('\nEpoch: {}'.format(i))
-    train_logs = train_epoch.run(train_loader)
-    valid_logs = valid_epoch.run(valid_loader)
+    for i in range(0, EPOCHS_NUM):
 
-    # do something (save model, change lr, etc.)
-    if max_score < valid_logs['iou']:
-        max_score = valid_logs['iou']
-        torch.save(model, './' + MODEL_NAME)
-        print('Model saved!')
+        # during every epoch randomly sample from the dataset, for training and validation dataset members
+        train_dataset, valid_dataset = torch.utils.data.random_split(full_dataset,
+                                                                     [train_size, valid_size])
 
-    if i == 10:
-        optimizer.param_groups[0]['lr'] = 1e-5
-        print('Decrease decoder learning rate to 1e-5!')
-'''
-# load best saved checkpoint
-best_model = torch.load('./' + MODEL_NAME)
+        train_loader = DataLoader(train_dataset, batch_size=12, shuffle=True, num_workers=8)
+        valid_loader = DataLoader(valid_dataset, batch_size=3, shuffle=False, num_workers=2)
 
-full_dataset_test = Dataset(
-    x_dir_test,
-    y_dir_test,
-    classes=CLASSES,
-    augmentation=get_training_augmentation(),
-)
+        print('\nEpoch: {}'.format(i))
+        train_logs = train_epoch.run(train_loader)
+        valid_logs = valid_epoch.run(valid_loader)
 
-# evaluate model on test set
-test_epoch = smp.utils.train.ValidEpoch(
-    model=best_model,
-    loss=loss,
-    metrics=metrics,
-    device=DEVICE,
-)
+        # do something (save model, change lr, etc.)
+        if max_score < valid_logs['iou']:
+            max_score = valid_logs['iou']
+            torch.save(model, './' + MODEL_NAME)
+            print('Model saved!')
 
-test_size = int(len(full_dataset_test)*TEST_RATIO)
-remaining_size = len(full_dataset_test) - test_size
+        if i == 10:
+            optimizer.param_groups[0]['lr'] = 1e-5
+            print('Decrease decoder learning rate to 1e-5!')
+        train_loss[i] = train_logs['dice_loss']
+        valid_loss[i] = valid_logs['dice_loss']
+        train_score[i] = train_logs['f-score']
+        valid_score[i] = valid_logs['f-score']
 
-train_dataset, test_dataset = torch.utils.data.random_split(full_dataset_test,
-                                                                 [remaining_size, test_size])
-test_loader = DataLoader(test_dataset, batch_size=3, shuffle=False, num_workers=2)
-logs = test_epoch.run(test_loader)
+    if CONTINUE_TRAIN:
+        train_loss_prev, valid_loss_prev, train_score_prev, valid_score_prev = load_results()
+        train_loss = np.append(train_loss_prev, train_loss)
+        valid_loss = np.append(valid_loss_prev, valid_loss)
+        train_score = np.append(train_score_prev, train_score)
+        valid_score = np.append(valid_score_prev, valid_score)
+    write_results(train_loss, valid_loss, train_score, valid_score)
 
-best_model = torch.load('./' + MODEL_NAME)
-model_result_dir = os.path.join(RESULT_DIR, MODEL_NAME)
 
-if not os.path.exists(model_result_dir):
-    os.mkdir(model_result_dir)
+def evaluate_model():
+    # load best saved checkpoint
+    best_model = torch.load('./' + MODEL_NAME)
 
-# save some prediction mask samples
-for i in range(10):
-    n = np.random.choice(len(full_dataset))
-    image, gt_mask = full_dataset[n]
+    full_dataset_test = Dataset(
+        x_dir_test,
+        y_dir_test,
+        classes=CLASSES,
+        augmentation=get_training_augmentation(),
+    )
 
-    gt_mask = gt_mask.squeeze()
+    # evaluate model on test set
+    test_epoch = smp.utils.train.ValidEpoch(
+        model=best_model,
+        loss=loss,
+        metrics=metrics,
+        device=DEVICE,
+    )
 
-    x_tensor = torch.from_numpy(image).to(DEVICE).unsqueeze(0)
-    pr_mask = best_model.predict(x_tensor)
-    pr_mask = pr_mask.squeeze().cpu().numpy().round()
-    gt_img = visualize(gt_mask)
-    pr_img = visualize(pr_mask)
-    image = np.squeeze(image)
-    imsave(model_result_dir + '/real_image_t1ce_{}.png'.format(i), image[0, :, :])
-    imsave(model_result_dir + '/real_image_t1_{}.png'.format(i), image[1, :, :])
-    imsave(model_result_dir + '/real_image_t2_{}.png'.format(i), image[2, :, :])
-    imsave(model_result_dir + '/real_mask_{}.png'.format(i), gt_img)
-    imsave(model_result_dir + '/predicted_mask_{}.png'.format(i), pr_img)
+    test_size = int(len(full_dataset_test) * TEST_RATIO)
+    remaining_size = len(full_dataset_test) - test_size
+
+    train_dataset, test_dataset = torch.utils.data.random_split(full_dataset_test,
+                                                                [remaining_size, test_size])
+    test_loader = DataLoader(test_dataset, batch_size=3, shuffle=False, num_workers=2)
+    logs = test_epoch.run(test_loader)
+
+
+def visualize_images():
+    best_model = torch.load('./' + MODEL_NAME)
+    model_result_dir = os.path.join(RESULT_DIR, MODEL_NAME)
+    if not os.path.exists(model_result_dir):
+        os.mkdir(model_result_dir)
+    # save some prediction mask samples
+    for i in range(10):
+        n = np.random.choice(len(full_dataset))
+        image, gt_mask = full_dataset[n]
+
+        gt_mask = gt_mask.squeeze()
+
+        x_tensor = torch.from_numpy(image).to(DEVICE).unsqueeze(0)
+        pr_mask = best_model.predict(x_tensor)
+        pr_mask = pr_mask.squeeze().cpu().numpy().round()
+        gt_img = visualize(gt_mask)
+        pr_img = visualize(pr_mask)
+        image = np.squeeze(image)
+        imsave(model_result_dir + '/real_image_t1ce_{}.png'.format(i), image[0, :, :])
+        imsave(model_result_dir + '/real_image_t1_{}.png'.format(i), image[1, :, :])
+        imsave(model_result_dir + '/real_image_t2_{}.png'.format(i), image[2, :, :])
+        imsave(model_result_dir + '/real_mask_{}.png'.format(i), gt_img)
+        imsave(model_result_dir + '/predicted_mask_{}.png'.format(i), pr_img)
+
+
+def plot_results():
+    x = np.arange(EPOCHS_NUM)
+
+    train_loss, valid_loss, train_score, valid_score = load_results()
+
+    plt.plot(x, train_score)
+    plt.plot(x, valid_score)
+    plt.legend(['train_score', 'valid_score'], loc='lower right')
+    plt.show()
+
+
+train_model()
+# plot_results()
+# evaluate_model()

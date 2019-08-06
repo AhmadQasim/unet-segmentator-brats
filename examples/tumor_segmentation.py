@@ -16,25 +16,36 @@ import segmentation_models_pytorch as smp
 os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
+
+# Epochs
+EPOCHS_NUM = 100
+TOTAL_EPOCHS = 0 + EPOCHS_NUM
+CONTINUE_TRAIN = False
+
+# Ratios
+PURE_RATIO = 1.0
+SYNTHETIC_RATIO = 1.0
+TEST_RATIO = 1.0
+VALIDATION_RATIO = 0.1
+
+# Training
+MODE = 'elastic'
+ENCODER = 'resnet34'
+ENCODER_WEIGHTS = 'imagenet'
+DEVICE = 'cuda'
+ACTIVATION = 'softmax'
+
+# classes to be used
+CLASSES = ['t_2', 't_1', 't_3']
+
+# Paths
 MODEL_NAME = 'model_epochs30_precent200_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + MODEL_NAME
 PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + MODEL_NAME + '.png'
 MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/cross_entopy/' + MODEL_NAME
 RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/' + MODEL_NAME
-# total: 100
-EPOCHS_NUM = 100
-PURE_RATIO = 1.0
-SYNTHETIC_RATIO = 1.0
-MODE = 'elastic'
-TEST_RATIO = 1.0
-VALIDATION_RATIO = 0.1
-ENCODER = 'resnet34'
-ENCODER_WEIGHTS = 'imagenet'
-DEVICE = 'cuda'
-CLASSES = ['t_2', 't_1', 't_3']
-ACTIVATION = 'softmax'
-CONTINUE_TRAIN = True
 
+# Dataset paths
 x_dir = dict()
 x_dir_syn = dict()
 x_dir_test = dict()
@@ -66,6 +77,9 @@ y_dir_test = os.path.join(DATA_DIR, 'train_label_full_test')
 
 if not os.path.exists(LOG_DIR):
     os.mkdir(LOG_DIR)
+
+if not os.path.exists(RESULT_DIR):
+    os.mkdir(RESULT_DIR)
 
 
 # this function fuses the predicted mask classes into one image
@@ -264,9 +278,7 @@ def evaluate_model():
 
 def visualize_images():
     best_model = torch.load(MODEL_DIR)
-    model_result_dir = os.path.join(RESULT_DIR)
-    if not os.path.exists(model_result_dir):
-        os.mkdir(model_result_dir)
+
     # save some prediction mask samples
     for i in range(10):
         n = np.random.choice(len(full_dataset))
@@ -280,11 +292,11 @@ def visualize_images():
         gt_img = visualize(gt_mask)
         pr_img = visualize(pr_mask)
         image = np.squeeze(image)
-        imsave(model_result_dir + '/real_image_t1ce_{}.png'.format(i), image[0, :, :])
-        imsave(model_result_dir + '/real_image_t1_{}.png'.format(i), image[1, :, :])
-        imsave(model_result_dir + '/real_image_t2_{}.png'.format(i), image[2, :, :])
-        imsave(model_result_dir + '/real_mask_{}.png'.format(i), gt_img)
-        imsave(model_result_dir + '/predicted_mask_{}.png'.format(i), pr_img)
+        imsave(RESULT_DIR + '/real_image_t1ce_{}.png'.format(i), image[0, :, :])
+        imsave(RESULT_DIR + '/real_image_t1_{}.png'.format(i), image[1, :, :])
+        imsave(RESULT_DIR + '/real_image_t2_{}.png'.format(i), image[2, :, :])
+        imsave(RESULT_DIR + '/real_mask_{}.png'.format(i), gt_img)
+        imsave(RESULT_DIR + '/predicted_mask_{}.png'.format(i), pr_img)
 
 
 def plot_results():

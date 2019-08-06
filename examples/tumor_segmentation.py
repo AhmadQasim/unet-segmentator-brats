@@ -19,7 +19,7 @@ DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 MODEL_NAME = 'model_epochs30_precent200_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + MODEL_NAME
 PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + MODEL_NAME + '.png'
-MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/' + MODEL_NAME
+MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/cross_entopy/' + MODEL_NAME
 RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/' + MODEL_NAME
 # total: 100
 EPOCHS_NUM = 100

@@ -13,17 +13,20 @@ from brats_dataset import Dataset
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/'
-MODEL_NAME = 'model_epochs30_precent50_vis'
+MODEL_NAME = 'model_epochs30_precent200_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + MODEL_NAME
-# 30+20
-EPOCHS_NUM = 50
+PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + MODEL_NAME + '.png'
+# total: 100
+EPOCHS_NUM = 100
 PURE_RATIO = 1.0
-SYNTHETIC_RATIO = 0.5
-TEST_RATIO = 0.5
+SYNTHETIC_RATIO = 1.0
+MODE = 'elastic'
+TEST_RATIO = 1.0
+VALIDATION_RATIO = 0.1
 ENCODER = 'resnet34'
 ENCODER_WEIGHTS = 'imagenet'
 DEVICE = 'cuda'
@@ -38,14 +41,27 @@ x_dir['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full')
 x_dir['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full')
 x_dir['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
 y_dir = os.path.join(DATA_DIR, 'train_label_full')
-x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_elastic_full_syn')
-x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_elastic_full_syn')
-x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_elastic_full_syn')
-y_dir_syn = os.path.join(DATA_DIR, 'train_label_elastic_full')
-x_dir_test['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full')
-x_dir_test['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full')
-x_dir_test['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
-y_dir_test = os.path.join(DATA_DIR, 'train_label_full')
+
+if MODE == 'elastic':
+    x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_elastic_full_syn')
+    x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_elastic_full_syn')
+    x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_elastic_full_syn')
+    y_dir_syn = os.path.join(DATA_DIR, 'train_label_elastic_full')
+elif MODE == 'coregistration':
+    x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_coregistration')
+    x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_coregistration')
+    x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_coregistration')
+    y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_coregistration')
+elif MODE == 'none':
+    x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_syn')
+    x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_syn')
+    x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_syn')
+    y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_syn')
+
+x_dir_test['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_test')
+x_dir_test['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_test')
+x_dir_test['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_test')
+y_dir_test = os.path.join(DATA_DIR, 'train_label_full_test')
 
 if not os.path.exists(LOG_DIR):
     os.mkdir(LOG_DIR)
@@ -82,7 +98,7 @@ def create_model():
 
 
 def create_dataset():
-    full_dataset = Dataset(
+    full_dataset_pure = Dataset(
         x_dir,
         y_dir,
         classes=CLASSES,
@@ -96,19 +112,19 @@ def create_dataset():
         augmentation=get_training_augmentation(),
     )
 
-    pure_size = int(len(full_dataset) * PURE_RATIO)
+    pure_size = int(len(full_dataset_pure) * PURE_RATIO)
 
     synthetic_size = int(len(full_dataset_syn) * SYNTHETIC_RATIO)
 
-    full_dataset = torch.utils.data.Subset(full_dataset, np.arange(pure_size))
+    full_dataset_pure = torch.utils.data.Subset(full_dataset_pure, np.arange(pure_size))
     full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
 
     # 200%
-    # full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
+    full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
 
-    full_dataset = torch.utils.data.ConcatDataset((full_dataset, full_dataset_syn))
+    full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_syn))
 
-    return full_dataset
+    return full_dataset, full_dataset_pure
 
 
 def load_results():
@@ -135,7 +151,7 @@ def write_results(train_loss, valid_loss, train_score, valid_score):
 
 
 model = create_model()
-full_dataset = create_dataset()
+full_dataset, full_dataset_pure = create_dataset()
 
 loss = smp.utils.losses.DiceLoss(eps=1.)
 metrics = [
@@ -176,17 +192,16 @@ def train_model():
     train_score = np.zeros(EPOCHS_NUM)
     valid_score = np.zeros(EPOCHS_NUM)
 
-    train_size = int(0.9 * len(full_dataset))
-    valid_size = len(full_dataset) - train_size
+    valid_size = int(VALIDATION_RATIO * len(full_dataset_pure))
+    remaining_size = len(full_dataset_pure) - valid_size
 
     for i in range(0, EPOCHS_NUM):
 
         # during every epoch randomly sample from the dataset, for training and validation dataset members
-        train_dataset, valid_dataset = torch.utils.data.random_split(full_dataset,
-                                                                     [train_size, valid_size])
-
+        train_dataset = full_dataset
+        valid_dataset, remaining_dataset = torch.utils.data.random_split(full_dataset_pure, [valid_size, remaining_size])
         train_loader = DataLoader(train_dataset, batch_size=12, shuffle=True, num_workers=8)
-        valid_loader = DataLoader(valid_dataset, batch_size=3, shuffle=False, num_workers=2)
+        valid_loader = DataLoader(valid_dataset, batch_size=3, drop_last=True)
 
         print('\nEpoch: {}'.format(i))
         train_logs = train_epoch.run(train_loader)
@@ -201,6 +216,9 @@ def train_model():
         if i == 10:
             optimizer.param_groups[0]['lr'] = 1e-5
             print('Decrease decoder learning rate to 1e-5!')
+        if i == 25:
+            optimizer.param_groups[0]['lr'] = 1e-6
+            print('Decrease decoder learning rate to 1e-6!')
         train_loss[i] = train_logs['dice_loss']
         valid_loss[i] = valid_logs['dice_loss']
         train_score[i] = train_logs['f-score']
@@ -276,9 +294,9 @@ def plot_results():
     plt.plot(x, train_score)
     plt.plot(x, valid_score)
     plt.legend(['train_score', 'valid_score'], loc='lower right')
-    plt.show()
+    plt.savefig(PLOT_DIR, bbox_inches='tight')
 
 
-train_model()
-# plot_results()
+# train_model()
+plot_results()
 # evaluate_model()

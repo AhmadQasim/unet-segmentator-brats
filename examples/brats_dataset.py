@@ -33,6 +33,7 @@ class Dataset(BaseDataset):
         image_t1ce = cv2.imread(self.images_fps_t1ce[i], cv2.IMREAD_GRAYSCALE)
         image_t1 = cv2.imread(self.images_fps_t1[i], cv2.IMREAD_GRAYSCALE)
         image_t2 = cv2.imread(self.images_fps_t2[i], cv2.IMREAD_GRAYSCALE)
+
         image = np.stack([image_t1ce, image_t1, image_t2], axis=-1).astype('float32')
         mask = cv2.imread(self.masks_fps[i], cv2.IMREAD_GRAYSCALE)
 

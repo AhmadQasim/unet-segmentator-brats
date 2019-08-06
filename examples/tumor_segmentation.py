@@ -16,10 +16,11 @@ import segmentation_models_pytorch as smp
 os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
-RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/'
 MODEL_NAME = 'model_epochs30_precent200_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + MODEL_NAME
 PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + MODEL_NAME + '.png'
+MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/' + MODEL_NAME
+RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/' + MODEL_NAME
 # total: 100
 EPOCHS_NUM = 100
 PURE_RATIO = 1.0
@@ -31,7 +32,7 @@ ENCODER = 'resnet34'
 ENCODER_WEIGHTS = 'imagenet'
 DEVICE = 'cuda'
 CLASSES = ['t_2', 't_1', 't_3']
-ACTIVATION = 'sigmoid'
+ACTIVATION = 'softmax'
 CONTINUE_TRAIN = True
 
 x_dir = dict()
@@ -86,7 +87,7 @@ def get_training_augmentation():
 
 def create_model():
     if CONTINUE_TRAIN:
-        model_loaded = torch.load('./' + MODEL_NAME)
+        model_loaded = torch.load(MODEL_DIR)
     else:
         model_loaded = smp.Unet(
             encoder_name=ENCODER,
@@ -210,7 +211,7 @@ def train_model():
         # do something (save model, change lr, etc.)
         if max_score < valid_logs['iou']:
             max_score = valid_logs['iou']
-            torch.save(model, './' + MODEL_NAME)
+            torch.save(MODEL_DIR)
             print('Model saved!')
 
         if i == 10:
@@ -235,7 +236,7 @@ def train_model():
 
 def evaluate_model():
     # load best saved checkpoint
-    best_model = torch.load('./' + MODEL_NAME)
+    best_model = torch.load(MODEL_DIR)
 
     full_dataset_test = Dataset(
         x_dir_test,
@@ -262,8 +263,8 @@ def evaluate_model():
 
 
 def visualize_images():
-    best_model = torch.load('./' + MODEL_NAME)
-    model_result_dir = os.path.join(RESULT_DIR, MODEL_NAME)
+    best_model = torch.load(MODEL_DIR)
+    model_result_dir = os.path.join(RESULT_DIR)
     if not os.path.exists(model_result_dir):
         os.mkdir(model_result_dir)
     # save some prediction mask samples

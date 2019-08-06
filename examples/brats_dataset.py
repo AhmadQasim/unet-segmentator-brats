@@ -17,7 +17,7 @@ class Dataset(BaseDataset):
     ):
         self.ids = os.listdir(images_dir['t2'])
         self.images_fps_t1ce = [os.path.join(images_dir['t1ce'], image_id) for image_id in self.ids]
-        self.images_fps_t1 = [os.path.join(images_dir['t1'], image_id) for image_id in self.ids]
+        self.images_fps_t1 = [os.path.join(images_dir['flair'], image_id) for image_id in self.ids]
         self.images_fps_t2 = [os.path.join(images_dir['t2'], image_id) for image_id in self.ids]
         self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids]
 

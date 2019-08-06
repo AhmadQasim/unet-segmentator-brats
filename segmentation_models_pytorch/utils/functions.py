@@ -18,7 +18,7 @@ def iou(pr, gt, eps=1e-7, threshold=None, activation='sigmoid'):
         activation_fn = lambda x: x
     elif activation == "sigmoid":
         activation_fn = torch.nn.Sigmoid()
-    elif activation == "softmax2d":
+    elif activation == "softmax":
         activation_fn = torch.nn.Softmax2d()
     else:
         raise NotImplementedError(
@@ -52,7 +52,7 @@ def f_score(pr, gt, beta=1, eps=1e-7, threshold=None, activation='sigmoid'):
         activation_fn = lambda x: x
     elif activation == "sigmoid":
         activation_fn = torch.nn.Sigmoid()
-    elif activation == "softmax2d":
+    elif activation == "softmax":
         activation_fn = torch.nn.Softmax2d()
     else:
         raise NotImplementedError(

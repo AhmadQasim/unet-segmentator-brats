@@ -13,7 +13,7 @@ from brats_dataset import Dataset
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 
@@ -34,16 +34,17 @@ ENCODER = 'resnet34'
 ENCODER_WEIGHTS = 'imagenet'
 DEVICE = 'cuda'
 ACTIVATION = 'softmax'
+LOSS = 'cross_entropy'
 
 # classes to be used
 CLASSES = ['t_2', 't_1', 't_3']
 
 # Paths
-MODEL_NAME = 'model_epochs30_precent200_vis'
-LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + MODEL_NAME
-PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + MODEL_NAME + '.png'
-MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/cross_entopy/' + MODEL_NAME
-RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/' + MODEL_NAME
+MODEL_NAME = 'model_epochs100_precent100_elastic_vis'
+LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + LOSS + '/' + MODEL_NAME
+PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + LOSS + '/' + MODEL_NAME + '.png'
+MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/' + LOSS + '/' + MODEL_NAME
+RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/' + LOSS + '/' + MODEL_NAME
 
 # Dataset paths
 x_dir = dict()
@@ -135,7 +136,7 @@ def create_dataset():
     full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
 
     # 200%
-    full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
+    # full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
 
     full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_syn))
 
@@ -168,7 +169,7 @@ def write_results(train_loss, valid_loss, train_score, valid_score):
 model = create_model()
 full_dataset, full_dataset_pure = create_dataset()
 
-loss = smp.utils.losses.DiceLoss(eps=1.)
+loss = smp.utils.losses.BCEJaccardLoss(eps=1.)
 metrics = [
     smp.utils.metrics.IoUMetric(eps=1.),
     smp.utils.metrics.FscoreMetric(eps=1.),
@@ -310,6 +311,6 @@ def plot_results():
     plt.savefig(PLOT_DIR, bbox_inches='tight')
 
 
-# train_model()
-plot_results()
+train_model()
+# plot_results()
 # evaluate_model()

@@ -15,7 +15,7 @@ class Dataset(BaseDataset):
             augmentation=None,
             preprocessing=None,
     ):
-        self.ids = os.listdir(images_dir['t2'])
+        self.ids = os.listdir(masks_dir)
         self.images_fps_t1ce = [os.path.join(images_dir['t1ce'], image_id) for image_id in self.ids]
         self.images_fps_t1 = [os.path.join(images_dir['flair'], image_id) for image_id in self.ids]
         self.images_fps_t2 = [os.path.join(images_dir['t2'], image_id) for image_id in self.ids]
@@ -38,7 +38,7 @@ class Dataset(BaseDataset):
         mask = cv2.imread(self.masks_fps[i], cv2.IMREAD_GRAYSCALE)
 
         if image.shape[0] == 256:
-             mask = cv2.copyMakeBorder(mask, 8, 8, 8, 8, cv2.BORDER_CONSTANT, (0, 0, 0))
+            mask = cv2.copyMakeBorder(mask, 8, 8, 8, 8, cv2.BORDER_CONSTANT, (0, 0, 0))
 
         # extract certain classes from mask
         masks = [(mask == v) for v in self.class_values]

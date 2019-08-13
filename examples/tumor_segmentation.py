@@ -13,9 +13,9 @@ from brats_dataset import Dataset
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
-DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/train_data_full/'
+DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 
 # Epochs
 EPOCHS_NUM = 100
@@ -24,12 +24,14 @@ CONTINUE_TRAIN = False
 
 # Ratios
 PURE_RATIO = 1.0
-SYNTHETIC_RATIO = 0.0
+SYNTHETIC_RATIO = 1.0
 TEST_RATIO = 1.0
 VALIDATION_RATIO = 0.1
+AUGMENTED_RATIO = 1.0
 
 # Training
-MODE = 'pure'
+# mode = pure, none, elastic deformation, coregistration or augmented
+MODE = 'augmented'
 ENCODER = 'resnet34'
 ENCODER_WEIGHTS = 'imagenet'
 DEVICE = 'cuda'
@@ -40,7 +42,7 @@ LOSS = 'cross_entropy'
 CLASSES = ['t_2', 't_1', 't_3']
 
 # Paths
-MODEL_NAME = 'model_epochs100_precent0_pure_vis'
+MODEL_NAME = 'model_epochs100_precent200_augmented_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + LOSS + '/' + MODEL_NAME
 PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + LOSS + '/' + MODEL_NAME + '.png'
 MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/' + LOSS + '/' + MODEL_NAME
@@ -56,10 +58,10 @@ x_dir['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
 y_dir = os.path.join(DATA_DIR, 'train_label_full')
 
 if MODE == 'elastic':
-    x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_elastic_full_syn')
-    x_dir_syn['flair'] = os.path.join(DATA_DIR, 'train_flair_img_elastic_full_syn')
-    x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_elastic_full_syn')
-    y_dir_syn = os.path.join(DATA_DIR, 'train_label_elastic_full')
+    x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_elastic')
+    x_dir_syn['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full_elastic')
+    x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_elastic')
+    y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_elastic')
 elif MODE == 'coregistration':
     x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_coregistration')
     x_dir_syn['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full_coregistration')
@@ -100,6 +102,15 @@ def get_training_augmentation():
     return albu.Compose(test_transform)
 
 
+def get_training_augmentation_simple():
+    test_transform = [
+        albu.RandomScale(scale_limit=0.1, interpolation=1, always_apply=False, p=0.5),
+        albu.Rotate(limit=15, interpolation=1, border_mode=4, value=None, always_apply=False, p=0.5),
+        albu.PadIfNeeded(256, 256, cv2.BORDER_CONSTANT, (0, 0, 0))
+    ]
+    return albu.Compose(test_transform)
+
+
 def create_model():
     if CONTINUE_TRAIN:
         model_loaded = torch.load(MODEL_DIR)
@@ -124,8 +135,22 @@ def create_dataset():
     pure_size = int(len(full_dataset_pure) * PURE_RATIO)
     full_dataset_pure = torch.utils.data.Subset(full_dataset_pure, np.arange(pure_size))
 
-    if MODE != 'pure':
+    if MODE == 'pure':
+        full_dataset = full_dataset_pure
+    elif MODE == 'augmented':
+        full_dataset_augmented = Dataset(
+            x_dir,
+            y_dir,
+            classes=CLASSES,
+            augmentation=get_training_augmentation(),
+        )
+        augmented_size = int(len(full_dataset_augmented) * AUGMENTED_RATIO)
+        full_dataset_augmented = torch.utils.data.Subset(full_dataset_augmented, np.arange(augmented_size))
 
+        # 200%
+        full_dataset_augmented = torch.utils.data.ConcatDataset((full_dataset_augmented, full_dataset_augmented))
+        full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_augmented))
+    else:
         full_dataset_syn = Dataset(
             x_dir_syn,
             y_dir_syn,
@@ -135,12 +160,11 @@ def create_dataset():
 
         synthetic_size = int(len(full_dataset_syn) * SYNTHETIC_RATIO)
         full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
-        full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_syn))
-    else:
-        full_dataset = full_dataset_pure
 
-    # 200%
-    # full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
+        # 200%
+        # full_dataset_syn = torch.utils.data.ConcatDataset((full_dataset_syn, full_dataset_syn))
+        full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_syn))
+
     return full_dataset, full_dataset_pure
 
 
@@ -172,8 +196,8 @@ full_dataset, full_dataset_pure = create_dataset()
 
 loss = smp.utils.losses.BCEJaccardLoss(eps=1.)
 metrics = [
-    smp.utils.metrics.IoUMetric(eps=1., activation=ACTIVATION),
-    smp.utils.metrics.FscoreMetric(eps=1., activation=ACTIVATION),
+    smp.utils.metrics.IoUMetric(eps=1.),
+    smp.utils.metrics.FscoreMetric(eps=1.),
 ]
 
 optimizer = torch.optim.Adam([

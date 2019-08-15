@@ -13,7 +13,7 @@ from brats_dataset import Dataset
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 
@@ -30,19 +30,20 @@ VALIDATION_RATIO = 0.1
 AUGMENTED_RATIO = 1.0
 
 # Training
-# mode = pure, none, elastic deformation, coregistration or augmented
-MODE = 'augmented'
+# mode = pure, none, elastic, coregistration or augmented
+MODE = 'pure'
 ENCODER = 'resnet34'
 ENCODER_WEIGHTS = 'imagenet'
 DEVICE = 'cuda'
 ACTIVATION = 'softmax'
 LOSS = 'cross_entropy'
 
+ALL_CLASSES = ['bg', 't_2', 't_1', 'b', 't_3']
 # classes to be used
 CLASSES = ['t_2', 't_1', 't_3']
 
 # Paths
-MODEL_NAME = 'model_epochs100_precent200_augmented_vis'
+MODEL_NAME = 'model_epochs100_precent0_pure_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + LOSS + '/' + MODEL_NAME
 PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + LOSS + '/' + MODEL_NAME + '.png'
 MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/' + LOSS + '/' + MODEL_NAME
@@ -104,8 +105,12 @@ def get_training_augmentation():
 
 def get_training_augmentation_simple():
     test_transform = [
-        albu.RandomScale(scale_limit=0.1, interpolation=1, always_apply=False, p=0.5),
+        # albu.RandomScale(scale_limit=0.1, interpolation=1, always_apply=False, p=0.5),
         albu.Rotate(limit=15, interpolation=1, border_mode=4, value=None, always_apply=False, p=0.5),
+        albu.VerticalFlip(always_apply=False, p=0.5),
+        albu.HorizontalFlip(always_apply=False, p=0.5),
+        albu.Transpose(always_apply=False, p=0.5),
+        albu.CenterCrop(height=200, width=200, always_apply=False, p=0.5),
         albu.PadIfNeeded(256, 256, cv2.BORDER_CONSTANT, (0, 0, 0))
     ]
     return albu.Compose(test_transform)
@@ -142,13 +147,13 @@ def create_dataset():
             x_dir,
             y_dir,
             classes=CLASSES,
-            augmentation=get_training_augmentation(),
+            augmentation=get_training_augmentation_simple(),
         )
         augmented_size = int(len(full_dataset_augmented) * AUGMENTED_RATIO)
         full_dataset_augmented = torch.utils.data.Subset(full_dataset_augmented, np.arange(augmented_size))
 
         # 200%
-        full_dataset_augmented = torch.utils.data.ConcatDataset((full_dataset_augmented, full_dataset_augmented))
+        # full_dataset_augmented = torch.utils.data.ConcatDataset((full_dataset_augmented, full_dataset_augmented))
         full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_augmented))
     else:
         full_dataset_syn = Dataset(
@@ -194,7 +199,7 @@ def write_results(train_loss, valid_loss, train_score, valid_score):
 model = create_model()
 full_dataset, full_dataset_pure = create_dataset()
 
-loss = smp.utils.losses.BCEJaccardLoss(eps=1.)
+loss = smp.utils.losses.DiceLoss(eps=1.)
 metrics = [
     smp.utils.metrics.IoUMetric(eps=1.),
     smp.utils.metrics.FscoreMetric(eps=1.),
@@ -336,6 +341,45 @@ def plot_results():
     plt.savefig(PLOT_DIR, bbox_inches='tight')
 
 
-train_model()
+def dice_coef(gt_mask, pr_mask):
+
+    intersection = np.logical_and(pr_mask.flatten(), gt_mask.flatten())
+    dice = 2. * intersection.sum() / (pr_mask.sum() + gt_mask.sum())
+    return dice
+
+
+def class_specific_dice(classes):
+    # load best saved checkpoint
+    best_model = torch.load(MODEL_DIR)
+
+    full_dataset_test = Dataset(
+        x_dir_test,
+        y_dir_test,
+        classes=CLASSES,
+        augmentation=get_training_augmentation(),
+    )
+
+    metric = smp.utils.metrics.FscoreMetric(eps=1.)
+    dice_avg = torch.zeros(len(classes))
+
+    for i in range(len(full_dataset_test)):
+        image, gt_mask = full_dataset_test[i]
+        gt_mask = torch.from_numpy(gt_mask).to(DEVICE).squeeze()
+        x_tensor = torch.from_numpy(image).to(DEVICE).unsqueeze(0)
+        pr_mask = best_model.forward(x_tensor)
+        pr_mask = pr_mask.squeeze()
+
+        for idx, cls in enumerate(classes):
+            dice = metric.forward(pr_mask[idx, :, :], gt_mask[idx, :, :])
+            dice_avg[idx] += dice
+
+    dice_avg /= len(full_dataset_test)
+    print(classes[0] + '{}'.format(dice_avg[0]))
+    print(classes[1] + '{}'.format(dice_avg[1]))
+    print(classes[2] + '{}'.format(dice_avg[2]))
+
+
+# train_model()
 # plot_results()
-# evaluate_model()
+evaluate_model()
+# class_specific_dice(['Core: ', 'Enhancing: ', 'Edema: '])

@@ -13,7 +13,7 @@ from brats_dataset import Dataset
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 
@@ -33,7 +33,7 @@ AUGMENTED_RATIO = 1.0
 # mode = pure, none, elastic, coregistration or augmented
 MODE = 'pure'
 ENCODER = 'resnet34'
-ENCODER_WEIGHTS = 'imagenet'
+ENCODER_WEIGHTS = None
 DEVICE = 'cuda'
 ACTIVATION = 'softmax'
 LOSS = 'cross_entropy'
@@ -56,6 +56,7 @@ x_dir_test = dict()
 x_dir['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full')
 x_dir['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full')
 x_dir['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full')
+x_dir['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full')
 y_dir = os.path.join(DATA_DIR, 'train_label_full')
 
 if MODE == 'elastic':
@@ -77,6 +78,7 @@ elif MODE == 'none':
 x_dir_test['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_test')
 x_dir_test['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full_test')
 x_dir_test['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_test')
+x_dir_test['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_test')
 y_dir_test = os.path.join(DATA_DIR, 'train_label_full_test')
 
 if not os.path.exists(LOG_DIR):
@@ -303,7 +305,7 @@ def evaluate_model():
 
     train_dataset, test_dataset = torch.utils.data.random_split(full_dataset_test,
                                                                 [remaining_size, test_size])
-    test_loader = DataLoader(test_dataset, batch_size=3, shuffle=False, num_workers=2)
+    test_loader = DataLoader(test_dataset, batch_size=3, shuffle=True, num_workers=1)
     logs = test_epoch.run(test_loader)
 
 
@@ -342,15 +344,18 @@ def plot_results():
 
 
 def dice_coef(gt_mask, pr_mask):
+    tp = np.sum(np.logical_and(pr_mask, gt_mask))
+    sum_ = pr_mask.sum() + gt_mask.sum()
+    if sum_ == 0:
+        return 1.0
+    dice = (2. * tp) / (pr_mask.sum() + gt_mask.sum())
 
-    intersection = np.logical_and(pr_mask.flatten(), gt_mask.flatten())
-    dice = 2. * intersection.sum() / (pr_mask.sum() + gt_mask.sum())
     return dice
 
 
-def class_specific_dice(classes):
+def class_specific_dice(classes, model_path):
     # load best saved checkpoint
-    best_model = torch.load(MODEL_DIR)
+    best_model = torch.load(model_path)
 
     full_dataset_test = Dataset(
         x_dir_test,
@@ -360,26 +365,47 @@ def class_specific_dice(classes):
     )
 
     metric = smp.utils.metrics.FscoreMetric(eps=1.)
-    dice_avg = torch.zeros(len(classes))
+    # dice_avg = torch.zeros(len(classes))
 
-    for i in range(len(full_dataset_test)):
-        image, gt_mask = full_dataset_test[i]
-        gt_mask = torch.from_numpy(gt_mask).to(DEVICE).squeeze()
-        x_tensor = torch.from_numpy(image).to(DEVICE).unsqueeze(0)
-        pr_mask = best_model.forward(x_tensor)
-        pr_mask = pr_mask.squeeze()
+    test_size = int(len(full_dataset_test) * TEST_RATIO)
+    remaining_size = len(full_dataset_test) - test_size
 
-        for idx, cls in enumerate(classes):
-            dice = metric.forward(pr_mask[idx, :, :], gt_mask[idx, :, :])
-            dice_avg[idx] += dice
+    full_dataset_test, train_dataset = torch.utils.data.random_split(full_dataset_test,
+                                                      [test_size, remaining_size])
 
-    dice_avg /= len(full_dataset_test)
-    print(classes[0] + '{}'.format(dice_avg[0]))
-    print(classes[1] + '{}'.format(dice_avg[1]))
-    print(classes[2] + '{}'.format(dice_avg[2]))
+    dice_avg = 0
+
+    test_loader = DataLoader(full_dataset_test, batch_size=3, shuffle=True, num_workers=1)
+
+    for image, gt_mask in test_loader:
+        image = image.to(DEVICE)
+        gt_mask = gt_mask.cpu().detach().numpy()
+        # gt_mask = gt_mask.to(DEVICE)
+        pr_mask = best_model.forward(image)
+
+        activation_fn = torch.nn.Sigmoid()
+        pr_mask = activation_fn(pr_mask)
+
+        pr_mask = pr_mask.cpu().detach().numpy().round()
+
+        # for idx, cls in enumerate(classes):
+        #     dice = dice_coef(gt_mask[:, idx, :, :], pr_mask[:, idx, :, :])
+        #     dice_avg[idx] += dice
+
+        dice = dice_coef(gt_mask, pr_mask)
+        dice_avg += dice
+
+    dice_avg /= (len(full_dataset_test)/3)
+    print(dice_avg)
+
+    # for idx, cls in enumerate(classes):
+    #     print(classes[idx] + '{}'.format(dice_avg[idx]))
+
+    # print("Average : ", (dice_avg[0]+dice_avg[1]+dice_avg[2])/3)
 
 
-# train_model()
+train_model()
 # plot_results()
-evaluate_model()
-# class_specific_dice(['Core: ', 'Enhancing: ', 'Edema: '])
+# evaluate_model()
+# class_specific_dice(['Core: ', 'Enhancing: ', 'Edema: '], '/home/qasima/segmentation_models.pytorch/models/cross_'
+#                                                          'entropy/' + 'model_epochs100_precent0_pure_vis')

@@ -17,8 +17,9 @@ class Dataset(BaseDataset):
     ):
         self.ids = os.listdir(masks_dir)
         self.images_fps_t1ce = [os.path.join(images_dir['t1ce'], image_id) for image_id in self.ids]
-        self.images_fps_t1 = [os.path.join(images_dir['flair'], image_id) for image_id in self.ids]
+        self.images_fps_flair = [os.path.join(images_dir['flair'], image_id) for image_id in self.ids]
         self.images_fps_t2 = [os.path.join(images_dir['t2'], image_id) for image_id in self.ids]
+        self.images_fps_t1 = [os.path.join(images_dir['t1'], image_id) for image_id in self.ids]
         self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids]
 
         # convert str names to class values on masks
@@ -31,10 +32,11 @@ class Dataset(BaseDataset):
 
         # read data for all three modalities, i.e. t1ce, t1 and t2
         image_t1ce = cv2.imread(self.images_fps_t1ce[i], cv2.IMREAD_GRAYSCALE)
-        image_t1 = cv2.imread(self.images_fps_t1[i], cv2.IMREAD_GRAYSCALE)
+        image_flair = cv2.imread(self.images_fps_flair[i], cv2.IMREAD_GRAYSCALE)
         image_t2 = cv2.imread(self.images_fps_t2[i], cv2.IMREAD_GRAYSCALE)
+        image_t1 = cv2.imread(self.images_fps_t1[i], cv2.IMREAD_GRAYSCALE)
 
-        image = np.stack([image_t1ce, image_t1, image_t2], axis=-1).astype('float32')
+        image = np.stack([image_t1ce, image_flair, image_t2, image_t1], axis=-1).astype('float32')
         mask = cv2.imread(self.masks_fps[i], cv2.IMREAD_GRAYSCALE)
 
         if image.shape[0] == 256:

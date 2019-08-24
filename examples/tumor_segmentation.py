@@ -13,7 +13,7 @@ from brats_dataset import Dataset
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 DATA_DIR = '/home/qasima/segmentation_models.pytorch/data/'
 
@@ -31,7 +31,7 @@ AUGMENTED_RATIO = 1.0
 
 # Training
 # mode = pure, none, elastic, coregistration or augmented
-MODE = 'pure'
+MODE = 'augmented_coregistration'
 ENCODER = 'resnet34'
 ENCODER_WEIGHTS = None
 DEVICE = 'cuda'
@@ -43,9 +43,8 @@ ALL_CLASSES = ['bg', 't_2', 't_1', 'b', 't_3']
 CLASSES = ['t_2', 't_1', 't_3']
 
 # Paths
-MODEL_NAME = 'model_epochs100_precent0_pure_vis'
+MODEL_NAME = 'model_epochs100_precent100_augmented_vis'
 LOG_DIR = '/home/qasima/segmentation_models.pytorch/logs/' + LOSS + '/' + MODEL_NAME
-PLOT_DIR = '/home/qasima/segmentation_models.pytorch/plots/' + LOSS + '/' + MODEL_NAME + '.png'
 MODEL_DIR = '/home/qasima/segmentation_models.pytorch/models/' + LOSS + '/' + MODEL_NAME
 RESULT_DIR = '/home/qasima/segmentation_models.pytorch/results/' + LOSS + '/' + MODEL_NAME
 
@@ -63,16 +62,19 @@ if MODE == 'elastic':
     x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_elastic')
     x_dir_syn['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full_elastic')
     x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_elastic')
+    x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_elastic')
     y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_elastic')
-elif MODE == 'coregistration':
+elif MODE == 'coregistration' or MODE == 'augmented_coregistration':
     x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_coregistration')
     x_dir_syn['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full_coregistration')
     x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_coregistration')
+    x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_coregistration')
     y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_coregistration')
 elif MODE == 'none':
     x_dir_syn['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_syn')
     x_dir_syn['flair'] = os.path.join(DATA_DIR, 'train_flair_img_full_syn')
     x_dir_syn['t2'] = os.path.join(DATA_DIR, 'train_t2_img_full_syn')
+    x_dir_syn['t1'] = os.path.join(DATA_DIR, 'train_t1_img_full_syn')
     y_dir_syn = os.path.join(DATA_DIR, 'train_label_full_syn')
 
 x_dir_test['t1ce'] = os.path.join(DATA_DIR, 'train_t1ce_img_full_test')
@@ -157,6 +159,40 @@ def create_dataset():
         # 200%
         # full_dataset_augmented = torch.utils.data.ConcatDataset((full_dataset_augmented, full_dataset_augmented))
         full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_augmented))
+    elif MODE == 'augmented_coregistration':
+        full_dataset_augmented = Dataset(
+            x_dir,
+            y_dir,
+            classes=CLASSES,
+            augmentation=get_training_augmentation_simple(),
+        )
+        augmented_size = int(len(full_dataset_augmented) * AUGMENTED_RATIO)
+        full_dataset_augmented = torch.utils.data.Subset(full_dataset_augmented, np.arange(augmented_size))
+        full_dataset_augmented = torch.utils.data.ConcatDataset((full_dataset_augmented, full_dataset_augmented))
+
+        full_dataset_syn = Dataset(
+            x_dir_syn,
+            y_dir_syn,
+            classes=CLASSES,
+            augmentation=get_training_augmentation(),
+        )
+
+        synthetic_size = int(len(full_dataset_syn) * SYNTHETIC_RATIO)
+        full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
+
+        full_dataset_syn_augmented = Dataset(
+            x_dir_syn,
+            y_dir_syn,
+            classes=CLASSES,
+            augmentation=get_training_augmentation_simple(),
+        )
+
+        synthetic_size = int(len(full_dataset_syn_augmented) * SYNTHETIC_RATIO)
+        full_dataset_syn_augmented = torch.utils.data.Subset(full_dataset_syn_augmented, np.arange(synthetic_size))
+
+        full_dataset = torch.utils.data.ConcatDataset((full_dataset_pure, full_dataset_syn, full_dataset_augmented,
+                                                       full_dataset_syn_augmented))
+
     else:
         full_dataset_syn = Dataset(
             x_dir_syn,
@@ -175,14 +211,18 @@ def create_dataset():
     return full_dataset, full_dataset_pure
 
 
-def load_results():
-    with open(LOG_DIR + '/train_loss', 'rb') as f:
+def load_results(model_name=None):
+    if model_name is not None:
+        log_dir = '/home/qasima/segmentation_models.pytorch/logs/' + LOSS + '/' + model_name
+    else:
+        log_dir = LOG_DIR
+    with open(log_dir + '/train_loss', 'rb') as f:
         train_loss = pickle.load(f)
-    with open(LOG_DIR + '/valid_loss', 'rb') as f:
+    with open(log_dir + '/valid_loss', 'rb') as f:
         valid_loss = pickle.load(f)
-    with open(LOG_DIR + '/train_score', 'rb') as f:
+    with open(log_dir + '/train_score', 'rb') as f:
         train_score = pickle.load(f)
-    with open(LOG_DIR + '/valid_score', 'rb') as f:
+    with open(log_dir + '/valid_score', 'rb') as f:
         valid_score = pickle.load(f)
     return train_loss, valid_loss, train_score, valid_score
 
@@ -201,7 +241,7 @@ def write_results(train_loss, valid_loss, train_score, valid_score):
 model = create_model()
 full_dataset, full_dataset_pure = create_dataset()
 
-loss = smp.utils.losses.DiceLoss(eps=1.)
+loss = smp.utils.losses.BCEJaccardLoss(eps=1.)
 metrics = [
     smp.utils.metrics.IoUMetric(eps=1.),
     smp.utils.metrics.FscoreMetric(eps=1.),
@@ -248,8 +288,8 @@ def train_model():
         # during every epoch randomly sample from the dataset, for training and validation dataset members
         train_dataset = full_dataset
         valid_dataset, remaining_dataset = torch.utils.data.random_split(full_dataset_pure, [valid_size, remaining_size])
-        train_loader = DataLoader(train_dataset, batch_size=12, shuffle=True, num_workers=8)
-        valid_loader = DataLoader(valid_dataset, batch_size=3, drop_last=True)
+        train_loader = DataLoader(train_dataset, batch_size=36, shuffle=True, num_workers=8)
+        valid_loader = DataLoader(valid_dataset, batch_size=18, drop_last=True)
 
         print('\nEpoch: {}'.format(i))
         train_logs = train_epoch.run(train_loader)
@@ -332,15 +372,19 @@ def visualize_images():
         imsave(RESULT_DIR + '/predicted_mask_{}.png'.format(i), pr_img)
 
 
-def plot_results():
+def plot_results(model_name):
+    plot_dir = '/home/qasima/segmentation_models.pytorch/plots/' + LOSS + '/' + model_name + '.png'
+
     x = np.arange(EPOCHS_NUM)
 
-    train_loss, valid_loss, train_score, valid_score = load_results()
+    train_loss, valid_loss, train_score, valid_score = load_results(model_name)
 
     plt.plot(x, train_score)
     plt.plot(x, valid_score)
     plt.legend(['train_score', 'valid_score'], loc='lower right')
-    plt.savefig(PLOT_DIR, bbox_inches='tight')
+    plt.yticks(np.arange(0.0, 1.0, step=0.1))
+    plt.savefig(plot_dir, bbox_inches='tight')
+    plt.clf()
 
 
 def dice_coef(gt_mask, pr_mask):
@@ -365,7 +409,7 @@ def class_specific_dice(classes, model_path):
     )
 
     metric = smp.utils.metrics.FscoreMetric(eps=1.)
-    # dice_avg = torch.zeros(len(classes))
+    dice_avg = torch.zeros(len(classes))
 
     test_size = int(len(full_dataset_test) * TEST_RATIO)
     remaining_size = len(full_dataset_test) - test_size
@@ -373,7 +417,7 @@ def class_specific_dice(classes, model_path):
     full_dataset_test, train_dataset = torch.utils.data.random_split(full_dataset_test,
                                                       [test_size, remaining_size])
 
-    dice_avg = 0
+    dice_avg_overall = 0
 
     test_loader = DataLoader(full_dataset_test, batch_size=3, shuffle=True, num_workers=1)
 
@@ -388,24 +432,26 @@ def class_specific_dice(classes, model_path):
 
         pr_mask = pr_mask.cpu().detach().numpy().round()
 
-        # for idx, cls in enumerate(classes):
-        #     dice = dice_coef(gt_mask[:, idx, :, :], pr_mask[:, idx, :, :])
-        #     dice_avg[idx] += dice
+        for idx, cls in enumerate(classes):
+             dice = dice_coef(gt_mask[:, idx, :, :], pr_mask[:, idx, :, :])
+             dice_avg[idx] += dice
 
         dice = dice_coef(gt_mask, pr_mask)
-        dice_avg += dice
+        dice_avg_overall += dice
 
     dice_avg /= (len(full_dataset_test)/3)
-    print(dice_avg)
+    # print(dice_avg)
 
-    # for idx, cls in enumerate(classes):
-    #     print(classes[idx] + '{}'.format(dice_avg[idx]))
+    for idx, cls in enumerate(classes):
+        print(classes[idx] + '{}'.format(dice_avg[idx]))
 
-    # print("Average : ", (dice_avg[0]+dice_avg[1]+dice_avg[2])/3)
+    print("Average : ", dice_avg_overall/(len(full_dataset_test)/3), '\n')
 
 
-train_model()
-# plot_results()
-# evaluate_model()
-# class_specific_dice(['Core: ', 'Enhancing: ', 'Edema: '], '/home/qasima/segmentation_models.pytorch/models/cross_'
-#                                                          'entropy/' + 'model_epochs100_precent0_pure_vis')
+for filename in os.listdir('/home/qasima/segmentation_models.pytorch/models/' + LOSS + '/'):
+    print(filename)
+    # class_specific_dice(['Core: ', 'Enhancing: ', 'Edema: '], '/home/qasima/segmentation_models.pytorch/models/cross_'
+    #                                                          'entropy/' + filename)
+    plot_results(filename)
+    # evaluate_model()
+

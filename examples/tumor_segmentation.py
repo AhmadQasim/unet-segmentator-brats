@@ -8,6 +8,7 @@ import albumentations as albu
 import pickle
 import matplotlib.pyplot as plt
 from brats_dataset import Dataset
+from configs import configs
 
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
@@ -20,7 +21,7 @@ Using a U-net architecture for segmentation of Tumor Modalities
 
 
 class UnetTumorSegmentator:
-    def __init__(self):
+    def __init__(self, mode, model_name, pure_ratio, synthetic_ratio, augmented_ratio):
         self.root_dir = '/home/qasima/segmentation_models.pytorch/'
         self.data_dir = '/home/qasima/segmentation_models.pytorch/data/'
 
@@ -30,12 +31,12 @@ class UnetTumorSegmentator:
         self.continue_train = False
 
         # what proportion of pure data to be used
-        self.pure_ratio = 1.0
+        self.pure_ratio = pure_ratio
 
         # proportion of synthetic or augmented data to be used, depending on the mode, w.r.t the pure dataset size
         # can be set upto 2.0 i.e. 200%
-        self.synthetic_ratio = 1.0
-        self.augmented_ratio = 1.0
+        self.synthetic_ratio = synthetic_ratio
+        self.augmented_ratio = augmented_ratio
 
         # proportion of test data to be used
         self.test_ratio = 1.0
@@ -44,8 +45,8 @@ class UnetTumorSegmentator:
         self.validation_ratio = 0.1
 
         # training
-        # mode = pure, none, elastic, coregistration or augmented
-        self.mode = 'pure'
+        # mode = pure, none, elastic, coregistration, augmented, none_only or augmented_coregistered
+        self.mode = mode
         self.encoder = 'resnet34'
         self.encoder_weights = None
         self.device = 'cuda'
@@ -57,7 +58,7 @@ class UnetTumorSegmentator:
         self.classes = ['t_2', 't_1', 't_3']
 
         # paths
-        self.model_name = 'model_epochs100_percent0_pure_vis'
+        self.model_name = model_name
         self.log_dir = self.root_dir + 'logs/' + self.loss + '/' + self.model_name
         self.model_dir = self.root_dir + '/models/' + self.loss + '/' + self.model_name
         self.result_dir = self.root_dir + '/results/' + self.loss + '/' + self.model_name
@@ -490,13 +491,14 @@ class UnetTumorSegmentator:
 
 
 if __name__ == "__main__":
-    unet_model = UnetTumorSegmentator()
-    unet_model.create_folders()
-    unet_model.set_dataset_paths()
-    unet_model.create_dataset()
-    unet_model.create_model()
-    unet_model.setup_model()
-    unet_model.train_model()
-    unet_model.evaluate_model()
-    unet_model.plot_results()
-    unet_model.class_specific_dice(unet_model.classes)
+    for config in configs:
+        unet_model = UnetTumorSegmentator(**config)
+        unet_model.create_folders()
+        unet_model.set_dataset_paths()
+        unet_model.create_dataset()
+        unet_model.create_model()
+        unet_model.setup_model()
+        unet_model.train_model()
+        unet_model.evaluate_model()
+        unet_model.plot_results()
+        unet_model.class_specific_dice(unet_model.classes)

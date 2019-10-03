@@ -24,12 +24,13 @@ configs = [
     {'mode': 'coregistration', 'model_name': 'model_epochs100_percent200_coregistration_vis', 'pure_ratio': 1.0,
      'synthetic_ratio': 2.0, 'augmented_ratio': 0.0},
     # none mode
-    {'mode': 'none', 'model_name': 'model_epochs100_percent50_none_vis', 'pure_ratio': 1.0,
-     'synthetic_ratio': 0.5, 'augmented_ratio': 0.0},
-    {'mode': 'none', 'model_name': 'model_epochs100_percent100_none_vis', 'pure_ratio': 1.0,
-     'synthetic_ratio': 1.0, 'augmented_ratio': 0.0},
-    {'mode': 'none', 'model_name': 'model_epochs100_percent200_none_vis', 'pure_ratio': 1.0,
-     'synthetic_ratio': 2.0, 'augmented_ratio': 0.0},
+
+    # {'mode': 'none', 'model_name': 'model_epochs100_percent0_none_vis_old', 'pure_ratio': 1.0,
+    #  'synthetic_ratio': 0.5, 'augmented_ratio': 0.0},
+    # {'mode': 'none', 'model_name': 'model_epochs100_percent100_none_vis', 'pure_ratio': 1.0,
+    # 'synthetic_ratio': 1.0, 'augmented_ratio': 0.0},
+    # {'mode': 'none', 'model_name': 'model_epochs100_percent200_none_vis', 'pure_ratio': 1.0,
+    # 'synthetic_ratio': 2.0, 'augmented_ratio': 0.0},
     # augmented_coregistration
     {'mode': 'augmented_coregistration', 'model_name': 'model_epochs100_percent50_augmented_coregistration_vis',
      'pure_ratio': 1.0, 'synthetic_ratio': 0.5, 'augmented_ratio': 0.5},
@@ -38,6 +39,6 @@ configs = [
     {'mode': 'augmented_coregistration', 'model_name': 'model_epochs100_percent200_augmented_coregistration_vis',
      'pure_ratio': 1.0, 'synthetic_ratio': 2.0, 'augmented_ratio': 2.0},
     # none_only
-    {'mode': 'none_only', 'model_name': 'model_epochs100_percent100_none_only_vis', 'pure_ratio': 0.0,
-     'synthetic_ratio': 1.0, 'augmented_ratio': 0.0},
+    # {'mode': 'none_only', 'model_name': 'model_epochs100_percent100_none_only_vis', 'pure_ratio': 0.0,
+    # 'synthetic_ratio': 1.0, 'augmented_ratio': 0.0},
 ]

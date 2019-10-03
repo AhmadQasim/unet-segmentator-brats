@@ -9,11 +9,12 @@ import pickle
 import matplotlib.pyplot as plt
 from brats_dataset import Dataset
 from configs import configs
+from scipy.stats import wilcoxon, ttest_ind
 
 sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 """
 Using a U-net architecture for segmentation of Tumor Modalities
@@ -39,7 +40,7 @@ class UnetTumorSegmentator:
         self.augmented_ratio = augmented_ratio
 
         # proportion of test data to be used
-        self.test_ratio = 1.0
+        self.test_ratio = 0.05
 
         # test and validation ratios to use
         self.validation_ratio = 0.1
@@ -308,6 +309,7 @@ class UnetTumorSegmentator:
             pickle.dump(valid_score, f)
 
     def train_model(self):
+
         # train the model
         train_epoch = smp.utils.train.TrainEpoch(
             self.model,
@@ -380,6 +382,7 @@ class UnetTumorSegmentator:
     def evaluate_model(self):
         # load best saved checkpoint
         best_model = torch.load(self.model_dir)
+        print(self.model_name)
 
         full_dataset_test = Dataset(
             self.x_dir_test,
@@ -394,15 +397,21 @@ class UnetTumorSegmentator:
             loss=self.model_loss,
             metrics=self.metrics,
             device=self.device,
+            verbose=False
         )
 
         test_size = int(len(full_dataset_test) * self.test_ratio)
         remaining_size = len(full_dataset_test) - test_size
 
-        train_dataset, test_dataset = torch.utils.data.random_split(full_dataset_test,
-                                                                    [remaining_size, test_size])
-        test_loader = DataLoader(test_dataset, batch_size=3, shuffle=True, num_workers=1)
-        test_epoch.run(test_loader)
+        f_scores = []
+        for i in range(int(1/self.test_ratio)):
+            train_dataset, test_dataset = torch.utils.data.random_split(full_dataset_test,
+                                                                        [remaining_size, test_size])
+            test_loader = DataLoader(test_dataset, batch_size=3, shuffle=True, num_workers=1)
+            logs = test_epoch.run(test_loader)
+            f_scores.append(logs['f-score'])
+        print("F-score Mean: ", np.mean(f_scores))
+        print("F-scores Standard Dev: ", np.std(f_scores))
 
     def plot_results(self, model_name=None):
         # load the results and make a plot
@@ -434,6 +443,8 @@ class UnetTumorSegmentator:
         return dice
 
     def class_specific_dice(self, model_dir=None):
+        class_names = ['Core', 'Edema', 'Enhancing']
+
         # get class specific dice scores
         if model_dir is None:
             best_model = torch.load(self.model_dir)
@@ -447,16 +458,20 @@ class UnetTumorSegmentator:
             augmentation=self.get_training_augmentation_padding(),
         )
 
-        dice_avg = torch.zeros(len(self.classes))
+        dice_avg_1 = []
+        dice_avg_2 = []
+        dice_avg_3 = []
 
-        test_size = int(len(full_dataset_test) * self.test_ratio)
+        dice_avg = [dice_avg_1, dice_avg_2, dice_avg_3]
+
+        test_size = int(len(full_dataset_test) * 1.0)
         remaining_size = len(full_dataset_test) - test_size
 
         full_dataset_test, train_dataset = torch.utils.data.random_split(full_dataset_test,
                                                                          [test_size, remaining_size])
 
-        dice_avg_overall = 0
-        dice_avg_tumor_core = 0
+        dice_avg_overall = []
+        dice_avg_tumor_core = []
 
         test_loader = DataLoader(full_dataset_test, batch_size=3, shuffle=True, num_workers=1)
 
@@ -472,33 +487,117 @@ class UnetTumorSegmentator:
 
             for idx, cls in enumerate(self.classes):
                 dice = self.dice_coef(gt_mask[:, idx, :, :], pr_mask[:, idx, :, :])
-                dice_avg[idx] += dice
+                dice_avg[idx].append(dice)
 
             dice = self.dice_coef(gt_mask, pr_mask)
-            dice_avg_overall += dice
-            gt_mask = gt_mask[:, [True, True, False], :, :]
-            pr_mask = pr_mask[:, [True, True, False], :, :]
-            dice = self.dice_coef(gt_mask, pr_mask)
-            dice_avg_tumor_core += dice
+            dice_avg_overall.append(dice)
 
-        dice_avg /= (len(full_dataset_test) / 3)
+            # masking the edema class while keeping the enhancing and core to calculate the Tumor Core or TC class
+            gt_mask = gt_mask[:, [True, False, True], :, :]
+            pr_mask = pr_mask[:, [True, False, True], :, :]
+            dice = self.dice_coef(gt_mask, pr_mask)
+            dice_avg_tumor_core.append(dice)
 
         for idx, cls in enumerate(self.classes):
-            print(self.classes[idx] + '{}'.format(dice_avg[idx]))
+            print('Average ' + class_names[idx] + ': {}'.format(np.mean(dice_avg[idx])))
+            print('Standard Dev ' + class_names[idx] + ': {}'.format(np.std(dice_avg[idx])))
 
-        print("Average : ", dice_avg_overall / (len(full_dataset_test) / 3))
-        print("Average Tumor Core : ", dice_avg_tumor_core / (len(full_dataset_test) / 3), '\n')
+        print("Average : ", np.mean(dice_avg_overall))
+        print("Standard Dev: ", np.std(dice_avg_overall))
+        print("Average Tumor Core : ", np.mean(dice_avg_tumor_core))
+        print("Tumor Core Standard Dev: ", np.std(dice_avg_tumor_core))
+        print("*************************************************\n\n")
+
+    def calculate_wilcoxon(self, target_training_scenario):
+        class_names = ['Core', 'Edema', 'Enhancing']
+
+        target_model_1 = torch.load(self.model_dir)
+        target_model_2 = torch.load(self.root_dir + '/models/' + self.loss + '/' + target_training_scenario)
+
+        full_dataset_test = Dataset(
+            self.x_dir_test,
+            self.y_dir_test,
+            classes=self.classes,
+            augmentation=self.get_training_augmentation_padding(),
+        )
+
+        dice_score_overall_1 = []
+        dice_score_overall_2 = []
+
+        dice_avg_1_model_1 = []
+        dice_avg_2_model_1 = []
+        dice_avg_3_model_1 = []
+
+        dice_avg_model_1 = [dice_avg_1_model_1, dice_avg_2_model_1, dice_avg_3_model_1]
+
+        dice_avg_1_model_2 = []
+        dice_avg_2_model_2 = []
+        dice_avg_3_model_2 = []
+
+        dice_avg_model_2 = [dice_avg_1_model_2, dice_avg_2_model_2, dice_avg_3_model_2]
+
+        dice_avg_tumor_core_1 = []
+        dice_avg_tumor_core_2 = []
+
+        test_loader = DataLoader(full_dataset_test, batch_size=1, shuffle=True, num_workers=1)
+        for image, gt_mask in test_loader:
+            image = image.to(self.device)
+            gt_mask = gt_mask.cpu().detach().numpy()
+            pr_mask_1 = target_model_1.forward(image)
+            pr_mask_2 = target_model_2.forward(image)
+
+            activation_fn = torch.nn.Sigmoid()
+            pr_mask_1 = activation_fn(pr_mask_1)
+            pr_mask_2 = activation_fn(pr_mask_2)
+
+            pr_mask_1 = pr_mask_1.cpu().detach().numpy().round()
+            pr_mask_2 = pr_mask_2.cpu().detach().numpy().round()
+
+            for idx, cls in enumerate(self.classes):
+                dice = self.dice_coef(gt_mask[:, idx, :, :], pr_mask_1[:, idx, :, :])
+                dice_avg_model_1[idx].append(dice)
+                dice = self.dice_coef(gt_mask[:, idx, :, :], pr_mask_2[:, idx, :, :])
+                dice_avg_model_2[idx].append(dice)
+
+            dice_1 = self.dice_coef(gt_mask, pr_mask_1)
+            dice_2 = self.dice_coef(gt_mask, pr_mask_2)
+
+            gt_mask = gt_mask[:, [True, False, True], :, :]
+            pr_mask_1 = pr_mask_1[:, [True, False, True], :, :]
+            pr_mask_2 = pr_mask_2[:, [True, False, True], :, :]
+            dice = self.dice_coef(gt_mask, pr_mask_1)
+            dice_avg_tumor_core_1.append(dice)
+            dice = self.dice_coef(gt_mask, pr_mask_2)
+            dice_avg_tumor_core_2.append(dice)
+
+            dice_score_overall_1.append(dice_1)
+            dice_score_overall_2.append(dice_2)
+
+        for idx, cls in enumerate(self.classes):
+            print('Wilcoxon ' + class_names[idx] + ': {}'.format(wilcoxon(dice_avg_model_1[idx],
+                                                                          dice_avg_model_2[idx])))
+
+        print("Wilcoxon Score WT: ", wilcoxon(dice_score_overall_1, dice_score_overall_2))
+        print("T Test WT: ", ttest_ind(dice_score_overall_1, dice_score_overall_2))
+        print("Wilcoxon Score TC: ", wilcoxon(dice_avg_tumor_core_1, dice_avg_tumor_core_2))
 
 
 if __name__ == "__main__":
+    train = False
+    test = True
     for config in configs:
+        print(config["model_name"])
         unet_model = UnetTumorSegmentator(**config)
         unet_model.create_folders()
         unet_model.set_dataset_paths()
         unet_model.create_dataset()
         unet_model.create_model()
         unet_model.setup_model()
-        unet_model.train_model()
-        unet_model.evaluate_model()
-        unet_model.plot_results()
-        unet_model.class_specific_dice(unet_model.classes)
+        if train:
+            unet_model.train_model()
+        if test:
+            # unet_model.evaluate_model()
+            # unet_model.class_specific_dice()
+            if config["model_name"] == 'model_epochs100_percent200_augmented_vis':
+                unet_model.calculate_wilcoxon("model_epochs100_percent200_augmented_coregistration_vis")
+        # unet_model.plot_results()

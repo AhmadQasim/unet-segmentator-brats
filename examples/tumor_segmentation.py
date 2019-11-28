@@ -1,7 +1,6 @@
 import os
 import torch
 import numpy as np
-import sys
 import cv2
 from torch.utils.data import DataLoader
 import albumentations as albu
@@ -10,8 +9,6 @@ import matplotlib.pyplot as plt
 from brats_dataset import Dataset
 from configs import configs
 from scipy.stats import wilcoxon, ttest_ind
-
-sys.path.insert(0, '/home/qasima/segmentation_models.pytorch')
 import segmentation_models_pytorch as smp
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '5'
@@ -40,7 +37,7 @@ class UnetTumorSegmentator:
         self.augmented_ratio = augmented_ratio
 
         # proportion of test data to be used
-        self.test_ratio = 0.05
+        self.test_ratio = 1.0
 
         # test and validation ratios to use
         self.validation_ratio = 0.1
@@ -84,6 +81,28 @@ class UnetTumorSegmentator:
         self.metrics = None
         self.optimizer = None
 
+        # scanners
+        self.scanner_classes = [
+            '2013',
+            'CBICA',
+            'TCIA01',
+            'TCIA02',
+            'TCIA03',
+            'TCIA04',
+            'TCIA05',
+            'TCIA06',
+            'TCIA08',
+            'TMC'
+        ]
+        self.fine_tuning = False
+        self.scanner_class = 0
+
+        self.freeze_layers_encoder = None
+        self.fine_tune_layers_encoder = None
+
+        self.freeze_layers_decoder = None
+        self.fine_tune_layers_decoder = None
+
     def create_folders(self):
         # create folders for results and logs to be saved
         if not os.path.exists(self.log_dir):
@@ -124,6 +143,19 @@ class UnetTumorSegmentator:
             self.x_dir_syn['t2'] = os.path.join(self.data_dir, 'train_t2_img_full_syn')
             self.x_dir_syn['t1'] = os.path.join(self.data_dir, 'train_t1_img_full_syn')
             self.y_dir_syn = os.path.join(self.data_dir, 'train_label_full_syn')
+
+        elif self.mode == 'fine_tune_scanner' or self.mode == 'train_scanner':
+            # scanner class dataset
+            self.x_dir_syn['t1ce'] = os.path.join(self.data_dir, '{}/train_t1ce_img_full'.
+                                                  format(self.scanner_classes[self.scanner_class]))
+            self.x_dir_syn['flair'] = os.path.join(self.data_dir, '{}/train_flair_img_full'.
+                                                   format(self.scanner_classes[self.scanner_class]))
+            self.x_dir_syn['t2'] = os.path.join(self.data_dir, '{}/train_t2_img_full'.
+                                                format(self.scanner_classes[self.scanner_class]))
+            self.x_dir_syn['t1'] = os.path.join(self.data_dir, '{}/train_t1_img_full'.
+                                                format(self.scanner_classes[self.scanner_class]))
+            self.y_dir_syn = os.path.join(self.data_dir, '{}/train_label_full'.
+                                          format(self.scanner_classes[self.scanner_class]))
 
         # test dataset
         self.x_dir_test['t1ce'] = os.path.join(self.data_dir, 'train_t1ce_img_full_test')
@@ -239,6 +271,25 @@ class UnetTumorSegmentator:
         # create or load the model
         if self.continue_train:
             self.model = torch.load(self.model_dir)
+
+            self.freeze_layers_encoder = [self.model.encoder.conv1,
+                                          self.model.encoder.bn1,
+                                          self.model.encoder.relu,
+                                          self.model.encoder.maxpool,
+                                          self.model.encoder.layer1,
+                                          self.model.encoder.layer2,
+                                          self.model.encoder.layer3]
+
+            self.fine_tune_layers_encoder = list(self.model.encoder.layer4.parameters())
+
+            self.freeze_layers_decoder = [self.model.decoder.layer1.block,
+                                          self.model.decoder.layer2.block,
+                                          self.model.decoder.layer3.block,
+                                          self.model.decoder.layer4.block]
+
+            self.fine_tune_layers_decoder = list(self.model.decoder.layer5.
+                                                 parameters()) + list(self.model.decoder.final_conv.parameters())
+
         else:
             self.model = smp.Unet(
                 encoder_name=self.encoder,
@@ -256,10 +307,21 @@ class UnetTumorSegmentator:
             smp.utils.metrics.FscoreMetric(eps=1.),
         ]
 
-        self.optimizer = torch.optim.Adam([
-            {'params': self.model.decoder.parameters(), 'lr': 1e-4},
-            {'params': self.model.encoder.parameters(), 'lr': 1e-6},
-        ])
+        if self.fine_tuning:
+            for layer in self.freeze_layers_encoder:
+                layer.require_grad = False
+            for layer in self.freeze_layers_decoder:
+                layer.require_grad = False
+            self.optimizer = torch.optim.Adam([
+                {'params': self.fine_tune_layers_decoder, 'lr': 1e-4},
+                {'params': self.fine_tune_layers_encoder, 'lr': 1e-6},
+            ])
+        else:
+            self.model.decoder.layer1.require_grad = False
+            self.optimizer = torch.optim.Adam([
+                {'params': self.model.decoder.parameters(), 'lr': 1e-4},
+                {'params': self.model.encoder.parameters(), 'lr': 1e-6},
+            ])
 
     @staticmethod
     def get_training_augmentation_padding():
@@ -352,7 +414,7 @@ class UnetTumorSegmentator:
             valid_logs = valid_epoch.run(valid_loader)
 
             # do something (save model, change lr, etc.)
-            if max_score < valid_logs['iou']:
+            if max_score < valid_logs['iou'] or fine_tuning:
                 max_score = valid_logs['iou']
                 torch.save(self.model, self.model_dir)
                 print('Model saved!')
@@ -379,7 +441,7 @@ class UnetTumorSegmentator:
             valid_score = np.append(valid_score_prev, valid_score)
         self.write_results(train_loss, valid_loss, train_score, valid_score)
 
-    def evaluate_model(self):
+    def evaluate_model(self, scanner_cls=None):
         # load best saved checkpoint
         best_model = torch.load(self.model_dir)
         print(self.model_name)
@@ -389,6 +451,7 @@ class UnetTumorSegmentator:
             self.y_dir_test,
             classes=self.classes,
             augmentation=self.get_training_augmentation_padding(),
+            scanner=scanner_cls
         )
 
         # evaluate model on test set
@@ -404,7 +467,7 @@ class UnetTumorSegmentator:
         remaining_size = len(full_dataset_test) - test_size
 
         f_scores = []
-        for i in range(int(1/self.test_ratio)):
+        for i in range(int(1 / self.test_ratio)):
             train_dataset, test_dataset = torch.utils.data.random_split(full_dataset_test,
                                                                         [remaining_size, test_size])
             test_loader = DataLoader(test_dataset, batch_size=3, shuffle=True, num_workers=1)
@@ -442,7 +505,7 @@ class UnetTumorSegmentator:
 
         return dice
 
-    def class_specific_dice(self, model_dir=None):
+    def class_specific_dice(self, model_dir=None, scanner_cls=None):
         class_names = ['Core', 'Edema', 'Enhancing']
 
         # get class specific dice scores
@@ -456,6 +519,7 @@ class UnetTumorSegmentator:
             self.y_dir_test,
             classes=self.classes,
             augmentation=self.get_training_augmentation_padding(),
+            scanner=scanner_cls
         )
 
         dice_avg_1 = []
@@ -584,20 +648,28 @@ class UnetTumorSegmentator:
 
 if __name__ == "__main__":
     train = False
+    continue_train = True
     test = True
+    mode = "fine_tune_scanner"
+    fine_tuning = True
+    scanner_class = 8
     for config in configs:
-        print(config["model_name"])
-        unet_model = UnetTumorSegmentator(**config)
-        unet_model.create_folders()
-        unet_model.set_dataset_paths()
-        unet_model.create_dataset()
-        unet_model.create_model()
-        unet_model.setup_model()
-        if train:
-            unet_model.train_model()
-        if test:
-            # unet_model.evaluate_model()
-            # unet_model.class_specific_dice()
-            if config["model_name"] == 'model_epochs100_percent200_augmented_vis':
-                unet_model.calculate_wilcoxon("model_epochs100_percent200_augmented_coregistration_vis")
-        # unet_model.plot_results()
+        if config["mode"] == mode:
+            unet_model = UnetTumorSegmentator(**config)
+            unet_model.continue_train = continue_train
+            unet_model.fine_tuning = fine_tuning
+            unet_model.scanner_class = scanner_class
+            unet_model.create_folders()
+            unet_model.set_dataset_paths()
+            unet_model.create_dataset()
+            unet_model.create_model()
+            unet_model.setup_model()
+            if train:
+                unet_model.train_model()
+            if test:
+                for scanner_id, scanner in enumerate(unet_model.scanner_classes):
+                    print(scanner)
+                    unet_model.evaluate_model(scanner_cls=scanner_id)
+                    # unet_model.class_specific_dice(scanner_cls=scanner_id)
+                # unet_model.calculate_wilcoxon("model_epochs100_percent200_augmented_coregistration_vis")
+                # unet_model.plot_results()

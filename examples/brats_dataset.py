@@ -2,6 +2,8 @@ from torch.utils.data import Dataset as BaseDataset
 import os
 import cv2
 import numpy as np
+import glob
+import re
 
 
 class Dataset(BaseDataset):
@@ -14,8 +16,27 @@ class Dataset(BaseDataset):
             classes=None,
             augmentation=None,
             preprocessing=None,
+            scanner=None
     ):
-        self.ids = os.listdir(images_dir['t1ce'])
+        self.scanner_classes = [
+            '2013',
+            'CBICA',
+            'TCIA01',
+            'TCIA02',
+            'TCIA03',
+            'TCIA04',
+            'TCIA05',
+            'TCIA06',
+            'TCIA08',
+            'TMC'
+        ]
+
+        if scanner is not None:
+            self.ids = [os.path.basename(x) for x in glob.glob(images_dir['t1ce'] + r'/*' +
+                                                               self.scanner_classes[scanner] + '.png')]
+        else:
+            self.ids = [os.path.basename(x) for x in glob.glob(images_dir['t1ce'] + r'/*.png')]
+
         self.images_fps_t1ce = [os.path.join(images_dir['t1ce'], image_id) for image_id in self.ids]
         self.images_fps_flair = [os.path.join(images_dir['flair'], image_id) for image_id in self.ids]
         self.images_fps_t2 = [os.path.join(images_dir['t2'], image_id) for image_id in self.ids]

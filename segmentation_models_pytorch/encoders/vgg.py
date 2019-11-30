@@ -1,7 +1,7 @@
 import torch.nn as nn
 from torchvision.models.vgg import VGG
 from torchvision.models.vgg import make_layers
-from torchvision.models.vgg import cfg
+from torchvision.models.vgg import cfgs
 from pretrainedmodels.models.torchvision_models import pretrained_settings
 
 
@@ -43,7 +43,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg11'],
         'params': {
-            'config': cfg['A'],
+            'config': cfgs['A'],
             'batch_norm': False,
         },
     },
@@ -53,7 +53,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg11_bn'],
         'params': {
-            'config': cfg['A'],
+            'config': cfgs['A'],
             'batch_norm': True,
         },
     },
@@ -63,7 +63,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg13'],
         'params': {
-            'config': cfg['B'],
+            'config': cfgs['B'],
             'batch_norm': False,
         },
     },
@@ -73,7 +73,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg13_bn'],
         'params': {
-            'config': cfg['B'],
+            'config': cfgs['B'],
             'batch_norm': True,
         },
     },
@@ -83,7 +83,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg16'],
         'params': {
-            'config': cfg['D'],
+            'config': cfgs['D'],
             'batch_norm': False,
         },
     },
@@ -93,7 +93,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg16_bn'],
         'params': {
-            'config': cfg['D'],
+            'config': cfgs['D'],
             'batch_norm': True,
         },
     },
@@ -103,7 +103,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg19'],
         'params': {
-            'config': cfg['E'],
+            'config': cfgs['E'],
             'batch_norm': False,
         },
     },
@@ -113,7 +113,7 @@ vgg_encoders = {
         'out_shapes': (512, 512, 512, 256, 128),
         'pretrained_settings': pretrained_settings['vgg19_bn'],
         'params': {
-            'config': cfg['E'],
+            'config': cfgs['E'],
             'batch_norm': True,
         },
     },

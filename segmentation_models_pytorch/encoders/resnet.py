@@ -12,7 +12,7 @@ class ResNetEncoder(ResNet):
         self.pretrained = False
         del self.fc
         # modification managing for four channels:
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+        self.conv1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
 
     def forward(self, x):

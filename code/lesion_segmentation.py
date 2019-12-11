@@ -7,13 +7,9 @@ import albumentations as albu
 import pickle
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
-import sys
-sys.path.append('../..')
+from lesion_dataset import Dataset
 
-from code.lesion_dataset import Dataset
-from code.configs import configs
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 """
 Using a U-net architecture for segmentation of Tumor Modalities
@@ -26,7 +22,7 @@ class UnetTumorSegmentator:
         self.data_dir = '/home/qasima/segmentation_models.pytorch/isic2018/data'
 
         # epochs
-        self.epochs_num = 10
+        self.epochs_num = 100
         self.total_epochs = 0 + self.epochs_num
         self.continue_train = False
 
@@ -60,6 +56,8 @@ class UnetTumorSegmentator:
         # dataset paths
         self.x_dir = None
         self.y_dir = None
+        self.x_dir_syn = None
+        self.y_dir_syn = None
         self.x_dir_test = None
         self.y_dir_test = None
 
@@ -95,6 +93,10 @@ class UnetTumorSegmentator:
         self.x_dir = os.path.join(self.data_dir, 'train/images')
         self.y_dir = os.path.join(self.data_dir, 'train/segmentation_masks')
 
+        # syn dataset
+        self.x_dir_syn = os.path.join(self.data_dir, 'train_syn/images')
+        self.y_dir_syn = os.path.join(self.data_dir, 'train_syn/segmentation_masks')
+
         # test dataset
         self.x_dir_test = os.path.join(self.data_dir, 'test/images')
         self.y_dir_test = os.path.join(self.data_dir, 'test/segmentation_masks')
@@ -107,12 +109,21 @@ class UnetTumorSegmentator:
             augmentation=self.get_training_augmentation_padding(),
         )
 
+        full_dataset_syn = Dataset(
+            self.x_dir_syn,
+            self.y_dir_syn,
+            synthesized=True,
+            augmentation=self.get_training_augmentation_padding(),
+        )
+
         pure_size = int(len(self.full_dataset_pure) * self.pure_ratio)
         self.full_dataset_pure = torch.utils.data.Subset(self.full_dataset_pure, np.arange(pure_size))
 
         if self.mode == 'pure':
             # mode is pure then full dataset is the pure dataset
             self.full_dataset = self.full_dataset_pure
+        elif self.mode == 'mixed':
+            self.full_dataset = torch.utils.data.ConcatDataset((self.full_dataset_pure, full_dataset_syn))
 
         return self.full_dataset, self.full_dataset_pure
 
@@ -213,8 +224,8 @@ class UnetTumorSegmentator:
             train_dataset = self.full_dataset
             valid_dataset, remaining_dataset = torch.utils.data.random_split(self.full_dataset_pure,
                                                                              [valid_size, remaining_size])
-            train_loader = DataLoader(train_dataset, batch_size=18, shuffle=True, num_workers=4)
-            valid_loader = DataLoader(valid_dataset, batch_size=9, drop_last=True, num_workers=4)
+            train_loader = DataLoader(train_dataset, batch_size=72, shuffle=True, num_workers=8)
+            valid_loader = DataLoader(valid_dataset, batch_size=36, drop_last=True, num_workers=4)
 
             print('\nEpoch: {}'.format(i))
             train_logs = train_epoch.run(train_loader)
@@ -299,7 +310,7 @@ class UnetTumorSegmentator:
             test_loader = DataLoader(test_dataset, batch_size=3, shuffle=True, num_workers=1)
             logs = test_epoch.run(test_loader)
 
-            print("F-score for cls " + cls + ":" + str(logs['f-score']))
+            print("F-score for cls " + cls + ": " + str(logs['f-score']))
 
     def plot_results(self, model_name=None):
         # load the results and make a plot
@@ -322,10 +333,12 @@ class UnetTumorSegmentator:
 
 if __name__ == "__main__":
     train = False
-    continue_train = True
+    continue_train = False
     test = True
 
-    unet_model = UnetTumorSegmentator("pure", "model_epochs100_percent100_pure", 1.0)
+    test_times = 5
+
+    unet_model = UnetTumorSegmentator("mixed", "model_epochs100_percent100_isic_256_syn", 1.0)
     unet_model.continue_train = continue_train
     unet_model.create_folders()
     unet_model.set_dataset_paths()
@@ -335,4 +348,5 @@ if __name__ == "__main__":
     if train:
         unet_model.train_model()
     if test:
-        unet_model.evaluate_model()
+        for i in range(test_times):
+            unet_model.evaluate_model()

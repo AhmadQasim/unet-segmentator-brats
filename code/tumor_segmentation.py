@@ -10,8 +10,9 @@ from brats_dataset import Dataset
 from configs import configs
 from scipy.stats import wilcoxon, ttest_ind
 import segmentation_models_pytorch as smp
+import sys
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 
 """
 Using a U-net architecture for segmentation of Tumor Modalities
@@ -147,15 +148,15 @@ class UnetTumorSegmentator:
         elif self.mode == 'fine_tune_scanner' or self.mode == 'train_scanner':
             # scanner class dataset
             self.x_dir_syn['t1ce'] = os.path.join(self.data_dir, '{}/train_t1ce_img_full'.
-                                                  format(self.scanner_classes[self.scanner_class]))
+                                                  format(self.scanner_class))
             self.x_dir_syn['flair'] = os.path.join(self.data_dir, '{}/train_flair_img_full'.
-                                                   format(self.scanner_classes[self.scanner_class]))
+                                                   format(self.scanner_class))
             self.x_dir_syn['t2'] = os.path.join(self.data_dir, '{}/train_t2_img_full'.
-                                                format(self.scanner_classes[self.scanner_class]))
+                                                format(self.scanner_class))
             self.x_dir_syn['t1'] = os.path.join(self.data_dir, '{}/train_t1_img_full'.
-                                                format(self.scanner_classes[self.scanner_class]))
+                                                format(self.scanner_class))
             self.y_dir_syn = os.path.join(self.data_dir, '{}/train_label_full'.
-                                          format(self.scanner_classes[self.scanner_class]))
+                                          format(self.scanner_class))
 
         # test dataset
         self.x_dir_test['t1ce'] = os.path.join(self.data_dir, 'train_t1ce_img_full_test')
@@ -444,7 +445,7 @@ class UnetTumorSegmentator:
     def evaluate_model(self, scanner_cls=None):
         # load best saved checkpoint
         best_model = torch.load(self.model_dir)
-        print(self.model_name)
+        print("Testing for: ", self.scanner_classes[scanner_cls])
 
         full_dataset_test = Dataset(
             self.x_dir_test,
@@ -474,7 +475,8 @@ class UnetTumorSegmentator:
             logs = test_epoch.run(test_loader)
             f_scores.append(logs['f-score'])
         print("F-score Mean: ", np.mean(f_scores))
-        print("F-scores Standard Dev: ", np.std(f_scores))
+        print("*************************\n")
+        # print("F-scores Standard Dev: ", np.std(f_scores))
 
     def plot_results(self, model_name=None):
         # load the results and make a plot
@@ -647,14 +649,15 @@ class UnetTumorSegmentator:
 
 
 if __name__ == "__main__":
-    train = False
-    continue_train = True
+    train = True
+    continue_train = False
     test = True
-    mode = "fine_tune_scanner"
-    fine_tuning = True
-    scanner_class = 8
+    mode = "train_scanner"
+    fine_tuning = False
+    scanner_class = sys.argv[1]
     for config in configs:
         if config["mode"] == mode:
+            config["model_name"] = config["model_name"] + '_{}'.format(scanner_class)
             unet_model = UnetTumorSegmentator(**config)
             unet_model.continue_train = continue_train
             unet_model.fine_tuning = fine_tuning
@@ -668,8 +671,4 @@ if __name__ == "__main__":
                 unet_model.train_model()
             if test:
                 for scanner_id, scanner in enumerate(unet_model.scanner_classes):
-                    print(scanner)
                     unet_model.evaluate_model(scanner_cls=scanner_id)
-                    # unet_model.class_specific_dice(scanner_cls=scanner_id)
-                # unet_model.calculate_wilcoxon("model_epochs100_percent200_augmented_coregistration_vis")
-                # unet_model.plot_results()

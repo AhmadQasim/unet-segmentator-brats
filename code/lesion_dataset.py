@@ -16,6 +16,7 @@ class Dataset(BaseDataset):
             augmentation=None,
             preprocessing=None,
             lesion_cls=None,
+            synthesized=False,
     ):
         self.lesion_classes = [
             'melanoma',
@@ -25,6 +26,7 @@ class Dataset(BaseDataset):
 
         files = os.listdir(images_dir)
         meta_file = "./meta_data.json"
+        format_img = ".png" if synthesized else ".jpg"
 
         ids = {key: [] for key in self.lesion_classes}
         with open(meta_file, 'r') as f:
@@ -32,15 +34,15 @@ class Dataset(BaseDataset):
 
         for meta in meta_data:
             diag = meta["meta"]["clinical"]["diagnosis"]
-            if meta["name"] + '.jpg' in files:
+            if meta["name"] + format_img in files:
                 ids[diag].append(meta["name"])
 
         if lesion_cls is None:
-            self.ids = [os.path.basename(x) for x in glob.glob(images_dir + r'/*.jpg')]
+            self.ids = [os.path.basename(x) for x in glob.glob(images_dir + r'/*.*')]
         else:
             self.ids = ids[lesion_cls]
 
-        self.images_fps = [os.path.join(images_dir, image_id.split('.')[0] + '.jpg')
+        self.images_fps = [os.path.join(images_dir, image_id.split('.')[0] + format_img)
                            for image_id in self.ids]
         self.masks_fps = [os.path.join(masks_dir, image_id.split('.')[0] + '_segmentation.png')
                           for image_id in self.ids]

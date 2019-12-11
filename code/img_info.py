@@ -3,6 +3,7 @@ import os
 import json
 import glob
 import matplotlib.pyplot as plt
+from shutil import copyfile
 
 
 class ISICApi(object):
@@ -112,7 +113,23 @@ def manipulate_data():
             os.rename(source_mask + name + "_segmentation.png", dest_mask + name + "_segmentation.png")
 
 
+def get_classes(cls="seborrheic keratosis"):
+    file = "./meta_data.json"
+    source_img = "/home/qasima/segmentation_models.pytorch/isic2018/data/train/images/"
+    dest_img = "/home/qasima/isic2018/seb/"
+
+    source_list = os.listdir(source_img)
+
+    with open(file, 'r') as f:
+        objects = json.load(f)
+
+    for obj in objects:
+        diag = obj["meta"]["clinical"]["diagnosis"]
+
+        if diag == cls:
+            if obj["name"] + '.jpg' in source_list:
+                copyfile(source_img + obj["name"] + '.jpg', dest_img + obj["name"] + '.jpg')
+
+
 if __name__ == "__main__":
-    # dump_data()
-    # temp()
-    pass
+    get_classes()

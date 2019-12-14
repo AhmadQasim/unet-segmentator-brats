@@ -10,9 +10,9 @@ from brats_dataset import Dataset
 from configs import configs
 from scipy.stats import wilcoxon, ttest_ind
 import segmentation_models_pytorch as smp
-import sys
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 """
 Using a U-net architecture for segmentation of Tumor Modalities
@@ -22,7 +22,7 @@ Using a U-net architecture for segmentation of Tumor Modalities
 class UnetTumorSegmentator:
     def __init__(self, mode, model_name, pure_ratio, synthetic_ratio, augmented_ratio):
         self.root_dir = '/home/qasima/segmentation_models.pytorch/'
-        self.data_dir = '/home/qasima/segmentation_models.pytorch/data/'
+        self.data_dir = '/home/qasima/segmentation_models.pytorch/data/fold_2/'
 
         # epochs
         self.epochs_num = 100
@@ -478,6 +478,8 @@ class UnetTumorSegmentator:
         print("*************************\n")
         # print("F-scores Standard Dev: ", np.std(f_scores))
 
+        return np.mean(f_scores)
+
     def plot_results(self, model_name=None):
         # load the results and make a plot
         if model_name is not None:
@@ -652,9 +654,9 @@ if __name__ == "__main__":
     train = True
     continue_train = False
     test = True
-    mode = "train_scanner"
+    mode = "pure"
     fine_tuning = False
-    scanner_class = sys.argv[1]
+    scanner_class = 2
     for config in configs:
         if config["mode"] == mode:
             config["model_name"] = config["model_name"] + '_{}'.format(scanner_class)
@@ -670,5 +672,17 @@ if __name__ == "__main__":
             if train:
                 unet_model.train_model()
             if test:
+                scores = []
                 for scanner_id, scanner in enumerate(unet_model.scanner_classes):
-                    unet_model.evaluate_model(scanner_cls=scanner_id)
+                    scores.append(unet_model.evaluate_model(scanner_cls=scanner_id))
+
+                fig = plt.figure(figsize=(20, 10))
+                plt.bar(unet_model.scanner_classes, scores)
+                plt.title("F-scores of model conditioned on scanner class: " +
+                          unet_model.scanner_classes[int(scanner_class)])
+                plt.ylim(0.0, 1.0)
+                plt.yticks(np.linspace(0.0, 1.0, 50))
+                plt.grid()
+                plt.savefig('/home/qasima/segmentation_models.pytorch/scanner_class_plots/' +
+                            unet_model.scanner_classes[int(scanner_class)])
+                plt.close(fig)

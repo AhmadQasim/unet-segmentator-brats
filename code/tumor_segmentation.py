@@ -10,9 +10,10 @@ from brats_dataset import Dataset
 from configs import configs
 from scipy.stats import wilcoxon, ttest_ind
 import segmentation_models_pytorch as smp
+import sys
 
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 """
 Using a U-net architecture for segmentation of Tumor Modalities
@@ -21,8 +22,10 @@ Using a U-net architecture for segmentation of Tumor Modalities
 
 class UnetTumorSegmentator:
     def __init__(self, mode, model_name, pure_ratio, synthetic_ratio, augmented_ratio):
+        self.fold = 'fold_4'
+
         self.root_dir = '/home/qasima/segmentation_models.pytorch/'
-        self.data_dir = '/home/qasima/segmentation_models.pytorch/data/fold_2/'
+        self.data_dir = '/home/qasima/segmentation_models.pytorch/data/' + self.fold + '/'
 
         # epochs
         self.epochs_num = 100
@@ -58,9 +61,10 @@ class UnetTumorSegmentator:
 
         # paths
         self.model_name = model_name
-        self.log_dir = self.root_dir + 'logs/' + self.loss + '/' + self.model_name
-        self.model_dir = self.root_dir + '/models/' + self.loss + '/' + self.model_name
-        self.result_dir = self.root_dir + '/results/' + self.loss + '/' + self.model_name
+        self.log_dir = self.root_dir + 'logs/' + self.loss + '/' + self.fold + '/' + self.model_name
+        self.model_dir = self.root_dir + 'models/' + self.loss + '/' + self.fold + '/' + self.model_name
+        self.result_dir = self.root_dir + 'results/' + self.loss + '/' + self.fold + '/' + self.model_name
+        self.scanner_plots_paths = self.root_dir + "scanner_class_plots/" + self.loss + '/' + self.fold + '/'
 
         # dataset paths
         self.x_dir = dict()
@@ -107,18 +111,21 @@ class UnetTumorSegmentator:
     def create_folders(self):
         # create folders for results and logs to be saved
         if not os.path.exists(self.log_dir):
-            os.mkdir(self.log_dir)
-
+            os.makedirs(self.log_dir)
         if not os.path.exists(self.result_dir):
-            os.mkdir(self.result_dir)
+            os.makedirs(self.result_dir)
+        # if not os.path.exists(self.model_dir):
+        #    os.makedirs(self.model_dir)
+        if not os.path.exists(self.scanner_plots_paths):
+            os.makedirs(self.scanner_plots_paths)
 
     def set_dataset_paths(self):
         # pure dataset
-        self.x_dir['t1ce'] = os.path.join(self.data_dir, 'train_t1ce_img_full')
-        self.x_dir['flair'] = os.path.join(self.data_dir, 'train_flair_img_full')
-        self.x_dir['t2'] = os.path.join(self.data_dir, 'train_t2_img_full')
-        self.x_dir['t1'] = os.path.join(self.data_dir, 'train_t1_img_full')
-        self.y_dir = os.path.join(self.data_dir, 'train_label_full')
+        self.x_dir['t1ce'] = os.path.join(self.data_dir, '1000/train_t1ce_img_full')
+        self.x_dir['flair'] = os.path.join(self.data_dir, '1000/train_flair_img_full')
+        self.x_dir['t2'] = os.path.join(self.data_dir, '1000/train_t2_img_full')
+        self.x_dir['t1'] = os.path.join(self.data_dir, '1000/train_t1_img_full')
+        self.y_dir = os.path.join(self.data_dir, '1000/train_label_full')
 
         # set the synthetic dataset paths
         if self.mode == 'elastic':
@@ -259,7 +266,7 @@ class UnetTumorSegmentator:
                 augmentation=self.get_training_augmentation_padding(),
             )
 
-            synthetic_size = int(len(self.full_dataset_pure) * self.synthetic_ratio)
+            synthetic_size = int(len(full_dataset_syn) * self.synthetic_ratio)
             full_dataset_syn = torch.utils.data.Subset(full_dataset_syn, np.arange(synthetic_size))
 
             # 200%
@@ -407,8 +414,8 @@ class UnetTumorSegmentator:
             train_dataset = self.full_dataset
             valid_dataset, remaining_dataset = torch.utils.data.random_split(self.full_dataset_pure,
                                                                              [valid_size, remaining_size])
-            train_loader = DataLoader(train_dataset, batch_size=36, shuffle=True, num_workers=8)
-            valid_loader = DataLoader(valid_dataset, batch_size=18, drop_last=True)
+            train_loader = DataLoader(train_dataset, batch_size=48, shuffle=True, num_workers=8)
+            valid_loader = DataLoader(valid_dataset, batch_size=24, drop_last=True)
 
             print('\nEpoch: {}'.format(i))
             train_logs = train_epoch.run(train_loader)
@@ -656,7 +663,7 @@ if __name__ == "__main__":
     test = True
     mode = "pure"
     fine_tuning = False
-    scanner_class = 2
+    scanner_class = 1000
     for config in configs:
         if config["mode"] == mode:
             config["model_name"] = config["model_name"] + '_{}'.format(scanner_class)
@@ -679,10 +686,10 @@ if __name__ == "__main__":
                 fig = plt.figure(figsize=(20, 10))
                 plt.bar(unet_model.scanner_classes, scores)
                 plt.title("F-scores of model conditioned on scanner class: " +
-                          unet_model.scanner_classes[int(scanner_class)])
+                          "pure")
                 plt.ylim(0.0, 1.0)
                 plt.yticks(np.linspace(0.0, 1.0, 50))
                 plt.grid()
-                plt.savefig('/home/qasima/segmentation_models.pytorch/scanner_class_plots/' +
-                            unet_model.scanner_classes[int(scanner_class)])
+                plt.savefig(unet_model.scanner_plots_paths +
+                            "pure")
                 plt.close(fig)

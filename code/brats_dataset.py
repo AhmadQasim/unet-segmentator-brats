@@ -3,7 +3,6 @@ import os
 import cv2
 import numpy as np
 import glob
-import re
 
 
 class Dataset(BaseDataset):
@@ -50,7 +49,6 @@ class Dataset(BaseDataset):
         self.preprocessing = preprocessing
 
     def __getitem__(self, i):
-
         # read data for all three modalities, i.e. t1ce, t1 and t2
         image_t1ce = cv2.imread(self.images_fps_t1ce[i], cv2.IMREAD_GRAYSCALE)
         image_flair = cv2.imread(self.images_fps_flair[i], cv2.IMREAD_GRAYSCALE)

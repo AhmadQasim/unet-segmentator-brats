@@ -11,8 +11,8 @@ class ResNetEncoder(ResNet):
         super().__init__(*args, **kwargs)
         self.pretrained = False
         del self.fc
-        # modification managing for just one channel
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
+        # modification managing for four channels:
+        self.conv1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
 
     def forward(self, x):
@@ -32,9 +32,9 @@ class ResNetEncoder(ResNet):
     def load_state_dict(self, state_dict, **kwargs):
         state_dict.pop('fc.bias')
         state_dict.pop('fc.weight')
-        # modification for one channel
+        # modification for four channels
         conv1_weight = state_dict['conv1.weight']
-        state_dict['conv1.weight'] = conv1_weight.sum(dim=1, keepdim=True)
+        state_dict['conv1.weight'] = conv1_weight.sum(dim=4, keepdim=True)
         super().load_state_dict(state_dict, **kwargs)
 
 

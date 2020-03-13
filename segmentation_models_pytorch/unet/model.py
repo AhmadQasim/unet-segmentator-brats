@@ -34,7 +34,7 @@ class Unet(EncoderDecoder):
             decoder_channels=(256, 128, 64, 32, 16),
             classes=1,
             activation='sigmoid',
-            center=False,  # usefull for VGG models
+            center=False,  # useful for VGG models
     ):
         encoder = get_encoder(
             encoder_name,

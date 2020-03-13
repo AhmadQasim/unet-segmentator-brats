@@ -1,7 +1,8 @@
+scipy
 numpy
 albumentations
 torch
-cv2
+opencv-python
 matplotlib
 torchvision==0.2.2
 pretrainedmodels==0.7.4
